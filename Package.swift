@@ -21,14 +21,28 @@ let package = Package(
             targets: ["SpeechflowCore"]
         ),
         .executable(
+            name: "LocalTranslationBench",
+            targets: ["LocalTranslationBench"]
+        ),
+        .executable(
             name: "SpeechflowApp",
             targets: ["SpeechflowApp"]
         )
     ],
+    dependencies: [],
     targets: [
         .target(
             name: "SpeechflowCore",
-            path: "Sources/SpeechflowCore"
+            dependencies: [],
+            path: "Sources/SpeechflowCore",
+            resources: [
+                .copy("Resources/faster_whisper_runner.py")
+            ]
+        ),
+        .executableTarget(
+            name: "LocalTranslationBench",
+            dependencies: ["SpeechflowCore"],
+            path: "Sources/LocalTranslationBench"
         ),
         .executableTarget(
             name: "SpeechflowApp",

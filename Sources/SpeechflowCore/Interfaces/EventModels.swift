@@ -18,10 +18,30 @@ public struct PermissionSet: Equatable, Sendable {
     public var isReadyForMVP: Bool {
         microphoneGranted && speechRecognitionGranted
     }
+
+    public func isReady(for inputSource: AudioInputSource) -> Bool {
+        switch inputSource {
+        case .microphone:
+            return microphoneGranted && speechRecognitionGranted
+        case .systemAudio:
+            return speechRecognitionGranted
+        }
+    }
+
+    public func missingRequirementsMessage(for inputSource: AudioInputSource) -> String {
+        switch inputSource {
+        case .microphone:
+            return "Microphone and speech recognition permissions are required."
+        case .systemAudio:
+            return "Speech recognition permission is required before starting system audio translation."
+        }
+    }
 }
 
 public enum SpeechflowEvent {
     case startRequested
+    case startMicrophoneRequested
+    case startSystemAudioRequested
     case pauseRequested
     case resumeRequested
     case stopRequested

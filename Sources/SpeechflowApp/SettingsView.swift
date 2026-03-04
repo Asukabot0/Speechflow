@@ -176,6 +176,23 @@ struct SettingsView: View {
             }
 
             Divider().padding(.vertical, 8)
+
+            Section(header: Text("Translation").font(.headline)) {
+                Picker("Backend", selection: Binding(
+                    get: { viewModel.settings.translationBackendPreference },
+                    set: { viewModel.updateTranslationBackendPreference($0) }
+                )) {
+                    ForEach(TranslationBackendPreference.allCases, id: \.self) { backend in
+                        Text(label(for: backend)).tag(backend)
+                    }
+                }
+
+                Text(translationBackendHint(for: viewModel.settings.translationBackendPreference))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+
+            Divider().padding(.vertical, 8)
             
             Section(header: Text("Defaults").font(.headline)) {
                 Toggle("Show Overlay by Default", isOn: Binding(
@@ -302,5 +319,23 @@ struct SettingsView: View {
         }
 
         NSWorkspace.shared.open(url)
+    }
+
+    private func label(for backend: TranslationBackendPreference) -> String {
+        switch backend {
+        case .system:
+            return "System Translation"
+        case .localOllama:
+            return "Local Ollama"
+        }
+    }
+
+    private func translationBackendHint(for backend: TranslationBackendPreference) -> String {
+        switch backend {
+        case .system:
+            return "Uses the current native translation path."
+        case .localOllama:
+            return "Attempts the local Ollama model first, then falls back automatically if Ollama or the configured model is unavailable."
+        }
     }
 }

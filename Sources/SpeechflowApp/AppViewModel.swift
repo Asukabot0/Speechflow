@@ -9,6 +9,7 @@ final class AppViewModel: ObservableObject {
 
     @Published var state: AppState
     @Published var settings: SpeechflowSettings
+    @Published var activeInputSource: AudioInputSource?
     
     let nativeTranslationService: Any?
 
@@ -16,6 +17,7 @@ final class AppViewModel: ObservableObject {
         self.coordinator = coordinator
         self.state = coordinator.state
         self.settings = coordinator.settings
+        self.activeInputSource = coordinator.activeInputSource
         self.nativeTranslationService = nativeTranslationService
 
         // Simple polling mechanism since AppCoordinator is not ObservableObject currently
@@ -28,6 +30,9 @@ final class AppViewModel: ObservableObject {
                 if self.settings != self.coordinator.settings {
                     self.settings = self.coordinator.settings
                 }
+                if self.activeInputSource != self.coordinator.activeInputSource {
+                    self.activeInputSource = self.coordinator.activeInputSource
+                }
                 try? await Task.sleep(nanoseconds: 100_000_000)
             }
         }
@@ -39,6 +44,14 @@ final class AppViewModel: ObservableObject {
 
     func start() {
         coordinator.handle(.startRequested)
+    }
+
+    func startMicrophoneTranslation() {
+        coordinator.handle(.startMicrophoneRequested)
+    }
+
+    func startSystemAudioTranslation() {
+        coordinator.handle(.startSystemAudioRequested)
     }
 
     func pause() {
@@ -113,6 +126,16 @@ final class AppViewModel: ObservableObject {
     func updatePauseCommitDelay(_ delay: Double) {
         var newSettings = settings
         newSettings.recognitionTuning.pauseCommitDelay = delay
+        updateSettings(newSettings)
+    }
+
+    func updateTranslationBackendPreference(_ backendPreference: TranslationBackendPreference) {
+        guard settings.translationBackendPreference != backendPreference else {
+            return
+        }
+
+        var newSettings = settings
+        newSettings.translationBackendPreference = backendPreference
         updateSettings(newSettings)
     }
 

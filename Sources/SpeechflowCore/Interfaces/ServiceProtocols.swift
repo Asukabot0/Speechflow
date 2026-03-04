@@ -5,6 +5,7 @@ public protocol AudioEngineServicing: AnyObject {
     func setBufferHandler(_ handler: @escaping (AVAudioPCMBuffer, AVAudioTime) -> Void)
     func clearBufferHandler()
     func updateRecognitionTuning(_ tuning: RecognitionTuning)
+    func updateInputSource(_ inputSource: AudioInputSource)
     func startCapture() throws
     func pauseCapture()
     func stopCapture()
@@ -22,7 +23,10 @@ public protocol NetworkMonitoring: AnyObject {
 }
 
 public protocol PermissionServicing: AnyObject {
-    func requestPermissions(eventSink: @escaping (SpeechflowEvent) -> Void)
+    func requestPermissions(
+        for inputSource: AudioInputSource,
+        eventSink: @escaping (SpeechflowEvent) -> Void
+    )
 }
 
 public protocol TranscriptBuffering: AnyObject {
@@ -41,8 +45,15 @@ public protocol TranslateServicing: AnyObject {
     func updateLanguagePair(_ pair: LanguagePair)
     func updatePolicy(_ policy: TranslationPolicy)
     func updateNetworkQuality(_ quality: NetworkQuality)
+    func updateBackendPreference(_ backendPreference: TranslationBackendPreference)
     func enqueue(_ segment: TranscriptSegment)
     func cancelAll()
+}
+
+public extension TranslateServicing {
+    func updateBackendPreference(_ backendPreference: TranslationBackendPreference) {
+        _ = backendPreference
+    }
 }
 
 public protocol OverlayRendering: AnyObject {

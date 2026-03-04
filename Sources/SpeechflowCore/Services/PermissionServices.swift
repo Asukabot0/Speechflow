@@ -17,11 +17,14 @@ public final class SystemPermissionService: PermissionServicing {
 
     public init() {}
 
-    public func requestPermissions(eventSink: @escaping (SpeechflowEvent) -> Void) {
+    public func requestPermissions(
+        for inputSource: AudioInputSource,
+        eventSink: @escaping (SpeechflowEvent) -> Void
+    ) {
         guard Self.canPromptForProtectedResourcesInCurrentProcess else {
             let permissions = Self.currentPermissionSnapshot
 
-            if permissions.isReadyForMVP {
+            if permissions.isReady(for: inputSource) {
                 eventSink(.permissionsResolved(permissions))
             } else {
                 eventSink(
@@ -34,7 +37,7 @@ public final class SystemPermissionService: PermissionServicing {
         }
 
         let sinkBox = EventSinkBox(handler: eventSink)
-        Self.requestMicrophoneIfNeeded {
+        Self.requestMicrophoneIfNeeded(for: inputSource) {
             Self.requestSpeechIfNeeded {
                 let permissions = Self.currentPermissionSnapshot
                 DispatchQueue.main.async {
@@ -78,7 +81,15 @@ public final class SystemPermissionService: PermissionServicing {
         )
     }
 
-    private static func requestMicrophoneIfNeeded(completion: @escaping @Sendable () -> Void) {
+    private static func requestMicrophoneIfNeeded(
+        for inputSource: AudioInputSource,
+        completion: @escaping @Sendable () -> Void
+    ) {
+        guard inputSource == .microphone else {
+            completion()
+            return
+        }
+
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .notDetermined else {
             completion()
             return

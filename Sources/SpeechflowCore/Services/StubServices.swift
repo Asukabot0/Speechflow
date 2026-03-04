@@ -4,6 +4,7 @@ import AVFoundation
 
 public final class StubAudioEngineService: AudioEngineServicing {
     public private(set) var isCapturing = false
+    public private(set) var inputSource: AudioInputSource = .microphone
     public private(set) var recognitionTuning: RecognitionTuning = .defaultValue
     private var bufferHandler: ((AVAudioPCMBuffer, AVAudioTime) -> Void)?
 
@@ -19,6 +20,10 @@ public final class StubAudioEngineService: AudioEngineServicing {
 
     public func updateRecognitionTuning(_ tuning: RecognitionTuning) {
         recognitionTuning = tuning
+    }
+
+    public func updateInputSource(_ inputSource: AudioInputSource) {
+        self.inputSource = inputSource
     }
 
     public func startCapture() throws {
@@ -99,7 +104,11 @@ public final class StubPermissionService: PermissionServicing {
         self.permissions = permissions
     }
 
-    public func requestPermissions(eventSink: @escaping (SpeechflowEvent) -> Void) {
+    public func requestPermissions(
+        for inputSource: AudioInputSource,
+        eventSink: @escaping (SpeechflowEvent) -> Void
+    ) {
+        _ = inputSource
         eventSink(.permissionsResolved(permissions))
     }
 }

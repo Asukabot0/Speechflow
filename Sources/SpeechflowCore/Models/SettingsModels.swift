@@ -76,6 +76,7 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
     public var languagePair: LanguagePair
     public var recognitionTuning: RecognitionTuning
     public var translationPolicy: TranslationPolicy
+    public var translationBackendPreference: TranslationBackendPreference
     public var overlayVisibleByDefault: Bool
     public var translationEnabledByDefault: Bool
     public var overlayScreenMode: OverlayScreenMode
@@ -92,6 +93,7 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
         languagePair: LanguagePair = LanguagePair(),
         recognitionTuning: RecognitionTuning = .defaultValue,
         translationPolicy: TranslationPolicy = .defaultValue,
+        translationBackendPreference: TranslationBackendPreference = .localOllama,
         overlayVisibleByDefault: Bool = true,
         translationEnabledByDefault: Bool = true,
         overlayScreenMode: OverlayScreenMode = .followPrimary,
@@ -107,6 +109,7 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
         self.languagePair = languagePair
         self.recognitionTuning = recognitionTuning
         self.translationPolicy = translationPolicy
+        self.translationBackendPreference = translationBackendPreference
         self.overlayVisibleByDefault = overlayVisibleByDefault
         self.translationEnabledByDefault = translationEnabledByDefault
         self.overlayScreenMode = overlayScreenMode

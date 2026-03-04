@@ -6,6 +6,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
 
     public private(set) var settings: SpeechflowSettings
     public private(set) var networkQuality: NetworkQuality = .unknown
+    public private(set) var activeInputSource: AudioInputSource?
 
     private let audioService: AudioEngineServicing
     private let asrService: LocalASRServicing
@@ -16,15 +17,21 @@ public final class AppCoordinator: SpeechflowCoordinating {
     private let overlayRenderer: OverlayRendering
     private let settingsStore: SettingsStoring
     private let clock: TimeProviding
+    private var pendingInputSource: AudioInputSource = .microphone
     private var isAwaitingPermissions = false
     private var shouldStartWhenPermissionsResolve = false
     private var pendingSilenceCommit: DispatchWorkItem?
     private var pendingStableCommit: DispatchWorkItem?
 
     private let minimumStableCommitCharacters = 6
+    private let minimumSemanticChunkCharacters = 14
+    private let minimumSemanticChunkTokens = 4
+    private let shortFragmentTokenLimit = 2
     private let shortPhraseExtraCommitDelay: TimeInterval = 0.4
     private let minimumPunctuatedCommitDelay: TimeInterval = 0.45
     private let minimumStableCommitDelay: TimeInterval = 0.35
+    private let minimumClauseCommitDelay: TimeInterval = 0.5
+    private let minimumSemanticCommitDelay: TimeInterval = 0.65
 
     public init(
         audioService: AudioEngineServicing,
@@ -52,6 +59,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         self.audioService.updateRecognitionTuning(self.settings.recognitionTuning)
         self.translateService.updateLanguagePair(self.settings.languagePair)
         self.translateService.updatePolicy(self.settings.translationPolicy)
+        self.translateService.updateBackendPreference(self.settings.translationBackendPreference)
         self.translateService.updateNetworkQuality(networkQuality)
         self.overlayRenderer.setVisibility(self.settings.overlayVisibleByDefault)
     }
@@ -60,7 +68,13 @@ public final class AppCoordinator: SpeechflowCoordinating {
         switch event {
         case .startRequested:
             print("[Coordinator] .startRequested")
-            requestPermissionsThenStartIfNeeded()
+            requestPermissionsThenStartIfNeeded(for: .microphone)
+        case .startMicrophoneRequested:
+            print("[Coordinator] .startMicrophoneRequested")
+            requestPermissionsThenStartIfNeeded(for: .microphone)
+        case .startSystemAudioRequested:
+            print("[Coordinator] .startSystemAudioRequested")
+            requestPermissionsThenStartIfNeeded(for: .systemAudio)
         case .pauseRequested:
             pauseSession()
         case .resumeRequested:
@@ -120,6 +134,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         }
 
         do {
+            audioService.updateInputSource(pendingInputSource)
             try asrService.startStreaming { [weak self] event in
                 self?.handle(event)
             }
@@ -130,6 +145,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
             translateService.start { [weak self] event in
                 self?.handle(event)
             }
+            activeInputSource = pendingInputSource
             state = .listening
             print("[Coordinator] startSession() — now listening")
             renderCurrentSnapshot()
@@ -145,6 +161,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
             asrService.stopStreaming()
             networkMonitor.stop()
             translateService.cancelAll()
+            activeInputSource = nil
         }
     }
 
@@ -167,6 +184,9 @@ public final class AppCoordinator: SpeechflowCoordinating {
         }
 
         do {
+            if let activeInputSource {
+                audioService.updateInputSource(activeInputSource)
+            }
             try asrService.startStreaming { [weak self] event in
                 self?.handle(event)
             }
@@ -199,6 +219,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         networkMonitor.stop()
         translateService.cancelAll()
         transcriptBuffer.reset()
+        activeInputSource = nil
         state = .idle
         renderCurrentSnapshot()
     }
@@ -206,14 +227,15 @@ public final class AppCoordinator: SpeechflowCoordinating {
     private func handlePermissionsResolved(_ permissions: PermissionSet) {
         isAwaitingPermissions = false
 
-        guard permissions.isReadyForMVP else {
+        guard permissions.isReady(for: pendingInputSource) else {
             shouldStartWhenPermissionsResolve = false
             state = .error(
                 AppErrorContext(
                     code: "permissions_missing",
-                    message: "Microphone and speech recognition permissions are required."
+                    message: permissions.missingRequirementsMessage(for: pendingInputSource)
                 )
             )
+            activeInputSource = nil
             return
         }
 
@@ -306,6 +328,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         )
         translateService.updateLanguagePair(newSettings.languagePair)
         translateService.updatePolicy(newSettings.translationPolicy)
+        translateService.updateBackendPreference(newSettings.translationBackendPreference)
         overlayRenderer.setVisibility(newSettings.overlayVisibleByDefault)
         renderCurrentSnapshot()
     }
@@ -368,6 +391,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
                 message: message
             )
         )
+        activeInputSource = nil
     }
 
     private func scheduleAutoCommit(for text: String) {
@@ -401,7 +425,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
             }
             pendingStableCommit = stableCommit
             DispatchQueue.main.asyncAfter(
-                deadline: .now() + stableCommitDelay,
+                deadline: .now() + stableCommitDelay(for: trimmed),
                 execute: stableCommit
             )
         }
@@ -418,7 +442,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
     }
 
     private func shouldScheduleStableCommit(for text: String) -> Bool {
-        endsWithTerminalPunctuation(text)
+        isRealtimeSubtitleCommitCandidate(text)
     }
 
     private func silenceCommitDelay(for text: String) -> TimeInterval {
@@ -426,12 +450,20 @@ public final class AppCoordinator: SpeechflowCoordinating {
             return max(minimumPunctuatedCommitDelay, configuredPauseCommitDelay * 0.64)
         }
 
-        let tokenCount = text.split(whereSeparator: \.isWhitespace).count
-        if tokenCount <= 1 && text.count < minimumStableCommitCharacters {
+        if endsWithClauseBoundaryPunctuation(text) {
+            return max(minimumClauseCommitDelay, configuredPauseCommitDelay * 0.74)
+        }
+
+        let tokenCount = wordTokenCount(in: text)
+        if tokenCount <= shortFragmentTokenLimit && text.count < minimumSemanticChunkCharacters {
             return configuredPauseCommitDelay + shortPhraseExtraCommitDelay
         }
 
-        return configuredPauseCommitDelay
+        if isSemanticChunkCandidate(text) {
+            return max(minimumSemanticCommitDelay, configuredPauseCommitDelay * 0.82)
+        }
+
+        return configuredPauseCommitDelay + 0.2
     }
 
     private func endsWithTerminalPunctuation(_ text: String) -> Bool {
@@ -440,6 +472,14 @@ public final class AppCoordinator: SpeechflowCoordinating {
         }
 
         return Self.terminalPunctuation.contains(lastCharacter)
+    }
+
+    private func endsWithClauseBoundaryPunctuation(_ text: String) -> Bool {
+        guard let lastCharacter = text.last else {
+            return false
+        }
+
+        return Self.clauseBoundaryPunctuation.contains(lastCharacter)
     }
 
     private static let terminalPunctuation: Set<Character> = [
@@ -451,6 +491,22 @@ public final class AppCoordinator: SpeechflowCoordinating {
         "？"
     ]
 
+    private static let clauseBoundaryPunctuation: Set<Character> = [
+        ",",
+        ";",
+        ":",
+        "，",
+        "、",
+        "；",
+        "："
+    ]
+
+    private static let weakTrailingConnectors: Set<String> = [
+        "a", "an", "and", "are", "as", "at", "but", "by", "for", "from",
+        "if", "in", "into", "is", "of", "on", "or", "so", "the", "to",
+        "was", "were", "with", "yet"
+    ]
+
     private func cancelAutoCommitTimers() {
         pendingStableCommit?.cancel()
         pendingStableCommit = nil
@@ -458,7 +514,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         pendingSilenceCommit = nil
     }
 
-    private func requestPermissionsThenStartIfNeeded() {
+    private func requestPermissionsThenStartIfNeeded(for inputSource: AudioInputSource) {
         switch state {
         case .idle, .error:
             break
@@ -470,9 +526,10 @@ public final class AppCoordinator: SpeechflowCoordinating {
             return
         }
 
+        pendingInputSource = inputSource
         shouldStartWhenPermissionsResolve = true
         isAwaitingPermissions = true
-        permissionService.requestPermissions { [weak self] event in
+        permissionService.requestPermissions(for: inputSource) { [weak self] event in
             self?.handle(event)
         }
     }
@@ -481,9 +538,74 @@ public final class AppCoordinator: SpeechflowCoordinating {
         max(0.6, settings.recognitionTuning.pauseCommitDelay)
     }
 
-    private var stableCommitDelay: TimeInterval {
-        let tunedDelay = configuredPauseCommitDelay * 0.55
-        return max(minimumStableCommitDelay, min(tunedDelay, configuredPauseCommitDelay - 0.15))
+    private func stableCommitDelay(for text: String) -> TimeInterval {
+        if endsWithTerminalPunctuation(text) {
+            let tunedDelay = configuredPauseCommitDelay * 0.42
+            return max(minimumStableCommitDelay, min(tunedDelay, configuredPauseCommitDelay - 0.18))
+        }
+
+        if endsWithClauseBoundaryPunctuation(text) {
+            let tunedDelay = configuredPauseCommitDelay * 0.5
+            return max(0.42, min(tunedDelay, configuredPauseCommitDelay - 0.12))
+        }
+
+        if isSemanticChunkCandidate(text) {
+            let tunedDelay = configuredPauseCommitDelay * 0.62
+            return max(0.55, min(tunedDelay, configuredPauseCommitDelay + 0.05))
+        }
+
+        let tunedDelay = configuredPauseCommitDelay * 0.72
+        return max(0.7, min(tunedDelay, configuredPauseCommitDelay + 0.18))
+    }
+
+    private func isRealtimeSubtitleCommitCandidate(_ text: String) -> Bool {
+        if endsWithTerminalPunctuation(text) || endsWithClauseBoundaryPunctuation(text) {
+            return true
+        }
+
+        return isSemanticChunkCandidate(text)
+    }
+
+    private func isSemanticChunkCandidate(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+
+        guard !endsWithWeakTrailingConnector(trimmed) else {
+            return false
+        }
+
+        let tokenCount = wordTokenCount(in: trimmed)
+        if tokenCount >= minimumSemanticChunkTokens && trimmed.count >= minimumSemanticChunkCharacters {
+            return true
+        }
+
+        if tokenCount <= 1 {
+            return trimmed.count >= minimumSemanticChunkCharacters
+        }
+
+        return false
+    }
+
+    private func endsWithWeakTrailingConnector(_ text: String) -> Bool {
+        guard let lastToken = text
+            .split(whereSeparator: \.isWhitespace)
+            .last?
+            .lowercased()
+            .trimmingCharacters(in: .punctuationCharacters) else {
+            return false
+        }
+
+        guard !lastToken.isEmpty else {
+            return false
+        }
+
+        return Self.weakTrailingConnectors.contains(lastToken)
+    }
+
+    private func wordTokenCount(in text: String) -> Int {
+        text.split(whereSeparator: \.isWhitespace).count
     }
 
     private var canStartSession: Bool {

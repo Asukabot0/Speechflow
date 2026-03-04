@@ -12,8 +12,9 @@ public final class TranscriptBuffer: TranscriptBuffering {
     private var committedSegments: [TranscriptSegment] = []
     private var languagePair: LanguagePair
     private let maxRetainedSegments: Int
-    private let duplicateCommitSuppressionWindow: TimeInterval = 2.0
-    private let refinementReplacementWindow: TimeInterval = 3.0
+    private let duplicateCommitSuppressionWindow: TimeInterval = 4.0
+    private let refinementReplacementWindow: TimeInterval = 12.0
+    private let maximumTrailingRefinementReplacements = 4
 
     public init(
         languagePair: LanguagePair,
@@ -47,7 +48,7 @@ public final class TranscriptBuffer: TranscriptBuffering {
             )
         }
 
-        replaceRecentRefinementIfNeeded(
+        replaceRecentRefinementsIfNeeded(
             sourceText: trimmed,
             normalizedSourceText: normalized,
             at: now
@@ -140,12 +141,15 @@ public final class TranscriptBuffer: TranscriptBuffering {
         return now.timeIntervalSince(committedAt) <= duplicateCommitSuppressionWindow
     }
 
-    private func replaceRecentRefinementIfNeeded(
+    private func replaceRecentRefinementsIfNeeded(
         sourceText: String,
         normalizedSourceText: String,
         at now: Date
     ) {
-        guard let lastSegment = committedSegments.last,
+        var replacementsRemaining = maximumTrailingRefinementReplacements
+
+        while replacementsRemaining > 0,
+              let lastSegment = committedSegments.last,
               lastSegment.sourceLanguage == languagePair.sourceCode,
               lastSegment.targetLanguage == languagePair.targetCode,
               let committedAt = lastSegment.committedAt,
@@ -155,11 +159,10 @@ public final class TranscriptBuffer: TranscriptBuffering {
                 previousNormalizedSourceText: lastSegment.normalizedSourceText,
                 newSourceText: sourceText,
                 newNormalizedSourceText: normalizedSourceText
-              ) else {
-            return
+              ) {
+            committedSegments.removeLast()
+            replacementsRemaining -= 1
         }
-
-        committedSegments.removeLast()
     }
 
     private func shouldReplaceRecentSegment(

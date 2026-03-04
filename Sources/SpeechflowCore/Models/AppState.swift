@@ -1,5 +1,19 @@
 import Foundation
 
+public enum AudioInputSource: String, Codable, Sendable {
+    case microphone
+    case systemAudio
+
+    public var displayName: String {
+        switch self {
+        case .microphone:
+            return "Microphone"
+        case .systemAudio:
+            return "System Audio"
+        }
+    }
+}
+
 public enum AppState: Equatable, Sendable {
     case idle
     case listening

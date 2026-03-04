@@ -62,6 +62,10 @@ public final class SystemAudioEngineService: AudioEngineServicing {
         stateLock.unlock()
     }
 
+    public func updateInputSource(_ inputSource: AudioInputSource) {
+        _ = inputSource
+    }
+
     public func startCapture() throws {
         let tuning = currentRecognitionTuning
         configureInputNodeForSpeechCapture(using: tuning)

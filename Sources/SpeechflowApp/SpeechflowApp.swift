@@ -29,10 +29,19 @@ struct SpeechflowApp: App {
         let settingsStore = InMemorySettingsStore()
         let settings = settingsStore.load()
 
-        let audioService = SystemAudioEngineService()
-        let asrService = SpeechFrameworkASRService(
-            audioService: audioService,
-            localeIdentifier: settings.languagePair.sourceCode
+        let audioService = SelectableAudioCaptureService(
+            microphoneService: SystemAudioEngineService(),
+            systemAudioService: ScreenCaptureSystemAudioService()
+        )
+        let asrService = PreferredLocalASRService(
+            primary: WhisperTurboASRService(
+                audioService: audioService,
+                localeIdentifier: settings.languagePair.sourceCode
+            ),
+            fallback: SpeechFrameworkASRService(
+                audioService: audioService,
+                localeIdentifier: settings.languagePair.sourceCode
+            )
         )
         let networkMonitor = StubNetworkMonitor()
         let permissionService = SystemPermissionService()
@@ -45,13 +54,19 @@ struct SpeechflowApp: App {
         
         if #available(macOS 15.0, *) {
             let native = NativeTranslationService()
-            translateServiceRef = native
+            translateServiceRef = TranslationRouterService(
+                preferredBackend: settings.translationBackendPreference,
+                systemProvider: native
+            )
             nativeTranslateRef = native
             #if canImport(Translation)
             translationWorkerController = TranslationWorkerWindowController(nativeTranslationService: native)
             #endif
         } else {
-            translateServiceRef = StubTranslateService()
+            translateServiceRef = TranslationRouterService(
+                preferredBackend: settings.translationBackendPreference,
+                systemProvider: StubTranslateService()
+            )
         }
         
         let transcriptBuffer = TranscriptBuffer(

@@ -41,14 +41,26 @@ public enum SpeechflowBootstrap {
         let settingsStore = InMemorySettingsStore()
         let settings = settingsStore.load()
 
-        let audioService = SystemAudioEngineService()
-        let asrService = SpeechFrameworkASRService(
-            audioService: audioService,
-            localeIdentifier: settings.languagePair.sourceCode
+        let audioService = SelectableAudioCaptureService(
+            microphoneService: SystemAudioEngineService(),
+            systemAudioService: ScreenCaptureSystemAudioService()
+        )
+        let asrService = PreferredLocalASRService(
+            primary: WhisperTurboASRService(
+                audioService: audioService,
+                localeIdentifier: settings.languagePair.sourceCode
+            ),
+            fallback: SpeechFrameworkASRService(
+                audioService: audioService,
+                localeIdentifier: settings.languagePair.sourceCode
+            )
         )
         let networkMonitor = StubNetworkMonitor()
         let permissionService = SystemPermissionService()
-        let translateService = StubTranslateService()
+        let translateService = TranslationRouterService(
+            preferredBackend: settings.translationBackendPreference,
+            systemProvider: StubTranslateService()
+        )
         let overlayRenderer = StubOverlayRenderer()
         let transcriptBuffer = TranscriptBuffer(
             languagePair: settings.languagePair,
@@ -84,13 +96,19 @@ public enum SpeechflowBootstrap {
         let settingsStore = InMemorySettingsStore()
         let settings = settingsStore.load()
 
-        let audioService = StubAudioEngineService()
+        let audioService = SelectableAudioCaptureService(
+            microphoneService: StubAudioEngineService(),
+            systemAudioService: StubAudioEngineService()
+        )
         let asrService = StubASRService(
             localeIdentifier: settings.languagePair.sourceCode
         )
         let networkMonitor = StubNetworkMonitor()
         let permissionService = StubPermissionService()
-        let translateService = StubTranslateService()
+        let translateService = TranslationRouterService(
+            preferredBackend: settings.translationBackendPreference,
+            systemProvider: StubTranslateService()
+        )
         let overlayRenderer = StubOverlayRenderer()
         let transcriptBuffer = TranscriptBuffer(
             languagePair: settings.languagePair,

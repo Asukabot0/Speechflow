@@ -2,97 +2,93 @@
 
 ## 1. Purpose
 
-This document defines the code-level contracts for the current MVP skeleton.
+This document describes the current code-level contracts for the live codebase, not the original skeleton.
 
-It is intended for AI agents and developers who will continue implementing the project. Treat this file as the implementation companion to the product PRD in [MVP_DEVELOPMENT_PLAN.md](/Users/asukabot/Speechflow/MVP_DEVELOPMENT_PLAN.md).
+Use it as the implementation-facing companion to [MVP_DEVELOPMENT_PLAN.md](/Users/asukabot/Speechflow/MVP_DEVELOPMENT_PLAN.md).
 
-The goal of this file is to answer:
+It answers four practical questions:
 
-- Which module owns which responsibility
-- Which types are considered shared contracts
-- Which state transitions are allowed
-- Which extension points are placeholders vs. stable interfaces
+- Which target owns which responsibility today
+- Which shared types are stable cross-module contracts
+- Which runtime paths are live, fallback, or still stubbed
+- Which invariants future changes must preserve
 
 ## 2. Package Layout
 
-- `Package.swift`
-  Declares the `SpeechflowCore` library target.
+File: [Package.swift](/Users/asukabot/Speechflow/Package.swift)
 
-- `Sources/SpeechflowCore/Models`
-  Shared state, translation policy, and data contracts.
+Current targets:
 
-- `Sources/SpeechflowCore/Interfaces`
-  Service protocols and event definitions.
+- `SpeechflowCore`
+  Shared models, protocols, orchestration, service implementations, and the bundled `faster_whisper_runner.py` resource.
 
-- `Sources/SpeechflowCore/Coordinator`
-  Top-level orchestration and state transitions.
+- `SpeechflowApp`
+  The macOS menu bar app, SwiftUI views, overlay windows, and live renderer wiring.
 
-- `Sources/SpeechflowCore/Services`
-  Stateful domain services and stub implementations.
+- `LocalTranslationBench`
+  A CLI executable for measuring local Ollama translation latency against the currently selected model.
 
-- `Sources/SpeechflowCore/Overlay`
-  Overlay render contracts and view model shaping.
+Notable packaging rule:
 
-- `Sources/SpeechflowCore/Settings`
-  Settings persistence abstractions and current in-memory implementation.
+- `SpeechflowCore` has no Swift package dependencies. Local ASR and translation rely on system frameworks plus local external runtimes:
+  - Python 3 + `faster-whisper`
+  - local Ollama HTTP service
 
-- `Sources/SpeechflowCore/App`
-  Bootstrap wiring for a default dependency graph.
-
-## 3. Shared Contracts
+## 3. Shared Model Contracts
 
 ### 3.1 App State
 
 File: [AppState.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Models/AppState.swift)
 
 - `AppState`
-  Global coordinator state.
-
 - `AppErrorContext`
-  Error payload for recoverable and non-recoverable failures.
 
-Rule:
+Rules:
 
-- Only the coordinator should directly mutate global app state.
+- `AppCoordinator` is the only owner that should mutate global app state.
+- Service failures should surface as events first, then be mapped into `AppState` transitions by the coordinator.
 
 ### 3.2 Transcript Models
 
 File: [TranscriptModels.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Models/TranscriptModels.swift)
 
 - `SegmentStatus`
-  Lifecycle of a single committed unit.
-
 - `CommitReason`
-  Why a draft became committed.
-
 - `TranscriptSegment`
-  Stable segment record. Once appended, its order must not change.
-
 - `TranscriptSnapshot`
-  Read model for render and downstream consumers.
-
 - `TranscriptBufferMutation`
-  Result object returned by the transcript buffer after partial or commit updates.
 
 Rules:
 
-- `partialText` represents only the current uncommitted text.
-- `committedSegments` are append-only in order.
-- Translations are attached by segment `id`, not by index guesswork.
+- `partialText` always represents the current uncommitted text only.
+- Translation results are attached by `segment.id`, never by display index.
+- Committed display order is stable, but the buffer is allowed to replace a few recent trailing segments when a newer ASR refinement clearly supersedes them.
+- Consumers must treat `segment.id` as the durable identity, not raw text.
+
+Important current behavior:
+
+- `TranscriptBuffer` suppresses exact duplicate commits within a short window.
+- `TranscriptBuffer` can replace up to several recent overlapping tail segments to avoid repeated rolling refinements stacking in the UI.
 
 ### 3.3 Settings Models
 
 File: [SettingsModels.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Models/SettingsModels.swift)
 
 - `LanguagePair`
+- `RecognitionTuning`
 - `OverlayScreenMode`
 - `OverlayFrame`
 - `SpeechflowSettings`
 
 Rules:
 
-- Settings are the source of truth for default behavior.
-- Runtime state may diverge temporarily, but persisted defaults should be synchronized through `SettingsStoring`.
+- `SpeechflowSettings` is the runtime source of truth for user-configurable defaults.
+- `translationBackendPreference` is now a first-class shared setting.
+- `recognitionTuning.pauseCommitDelay` is user-facing and directly influences commit timing.
+
+Current limitation:
+
+- The live app still uses `InMemorySettingsStore`, so settings are process-local and not persisted across app relaunches yet.
 
 ### 3.4 Translation Models
 
@@ -100,15 +96,26 @@ File: [TranslationModels.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCor
 
 - `NetworkQuality`
 - `TranslationBackend`
+- `TranslationBackendPreference`
 - `TranslationStrategy`
 - `TranslationPolicy`
+- `LocalModelDescriptor`
+- `LocalModelInstallState`
+- `LocalModelRuntimePreference`
+- `TranslationExecutionMetadata`
 - `TranslationResult`
 
 Rules:
 
-- ASR is treated as local-first and should not depend on these network states.
-- Translation routing is selected from these types.
-- `TranslationResult` is the single shared payload for successful translation completion, including degraded fallback paths.
+- `TranslationResult` is the only shared success payload for translation completion.
+- `TranslationExecutionMetadata` is the canonical place to record fallback and latency facts.
+- `TranslationBackendPreference` controls the initial provider route.
+- `TranslationBackend` records the actual backend that handled the segment.
+
+Important compatibility note:
+
+- `TranslationPolicy.strategy` still contains legacy names such as `remotePreferred`.
+- Current routing no longer means "remote-first network translation" in the default path. The router is now "local Ollama or system provider", but the policy type has not been renamed yet.
 
 ### 3.5 Event Model
 
@@ -119,11 +126,16 @@ File: [EventModels.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Inte
 
 Rules:
 
-- All user actions and async service callbacks should enter the system as `SpeechflowEvent`.
-- New event types should be added here before wiring new feature paths.
-- Frontend preference edits should be routed through `settingsUpdated`.
+- All async service callbacks and user intents enter the system as `SpeechflowEvent`.
+- New feature paths should add shared event cases here before adding ad hoc callbacks elsewhere.
 
-## 4. Service Protocols
+Important current behavior:
+
+- `PermissionSet.isReady(for:)` is source-aware:
+  - microphone mode requires microphone + speech permission
+  - system-audio mode requires speech permission only
+
+## 4. Service Protocol Contracts
 
 File: [ServiceProtocols.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Interfaces/ServiceProtocols.swift)
 
@@ -131,285 +143,422 @@ File: [ServiceProtocols.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore
 
 Responsibilities:
 
-- Start microphone capture
-- Forward captured audio buffers to the current downstream consumer
-- Pause capture
-- Stop and tear down capture
+- Select the active capture source
+- Start, pause, and stop capture
+- Forward `AVAudioPCMBuffer` frames downstream
+- Apply recognition tuning at the capture layer
 
-Non-responsibilities:
+Current live implementations:
 
-- ASR
-- Translation
-- UI updates
+- `SystemAudioEngineService`
+- `ScreenCaptureSystemAudioService`
+- `SelectableAudioCaptureService`
 
-Contract:
+Rules:
 
-- The audio service owns the microphone and `AVAudioEngine` lifecycle.
-- The audio service exposes captured audio through `setBufferHandler`.
-- The audio service must not interpret transcript text.
+- Capture services own audio acquisition only.
+- They must not emit transcript text directly.
+- They must remain swappable without changing ASR contracts.
 
 ### 4.2 `LocalASRServicing`
 
 Responsibilities:
 
-- Start local streaming recognition
-- Receive microphone audio from the audio engine service
-- Support source locale updates
-- Emit recognition results through `SpeechflowEvent`
-- Stop recognition
+- Start and stop local recognition
+- Accept locale changes
+- Emit `.asrPartialReceived` and `.asrFinalReceived`
+- Emit `.localASRFailed` when the active recognition path cannot continue
 
-Contract:
+Current live implementations:
 
-- The service should emit `.asrPartialReceived` and `.asrFinalReceived`.
-- Runtime failures should emit `.localASRFailed`.
-- The service should remain functional even when translation routes are degraded or unavailable.
+- `WhisperTurboASRService`
+- `SpeechFrameworkASRService`
+- `PreferredLocalASRService`
+
+Rules:
+
+- ASR must remain usable when translation is disabled, degraded, or unavailable.
+- Local ASR failure should not crash the app directly; it should surface as an event.
 
 ### 4.3 `NetworkMonitoring`
 
 Responsibilities:
 
-- Observe network quality for translation routing
-- Emit `.networkQualityChanged`
-- Stay independent from ASR and UI rendering
+- Emit `NetworkQuality` changes to translation services
 
-Contract:
+Current live implementation:
 
-- Network quality is advisory input for translation only.
-- Loss of network must never pause the ASR chain.
+- `StubNetworkMonitor`
+
+Rules:
+
+- Network quality is advisory for translation only.
+- ASR must not be blocked by network state.
+
+Current limitation:
+
+- This is still a stubbed input. The live app does not yet have real path monitoring.
 
 ### 4.4 `PermissionServicing`
 
 Responsibilities:
 
-- Request runtime permissions required for MVP startup
-- Emit `.permissionsResolved`
+- Request runtime permissions before startup
+- Emit `.permissionsResolved` or `.permissionRequestFailed`
 
-Contract:
-
-- MVP startup depends on microphone and speech recognition permission.
-- Permission requests should report asynchronously through `SpeechflowEvent`.
-- Permission denial should route through coordinator error handling rather than crashing the app.
-
-Current implementations:
+Current live implementation:
 
 - `SystemPermissionService`
-- `StubPermissionService`
+
+Rules:
+
+- Permission requests must be asynchronous.
+- Permission denial must route through coordinator error handling.
+
+Important runtime caveat:
+
+- `SystemPermissionService` refuses to prompt for protected resources when running as a raw SwiftPM executable because macOS TCC can terminate the process in that mode.
+- Use the bundled `.app` for first-time permission prompts.
 
 ### 4.5 `TranscriptBuffering`
 
 Responsibilities:
 
-- Track the current partial text
+- Track the active partial text
 - Commit draft text into stable segments
-- Mark translation in-flight
-- Attach translation back onto the correct segment
+- Mark translation in flight
+- Apply translation results or failures back onto the right segment
 - Reset session-local transcript state
 
-Contract:
+Rules:
 
 - The buffer does not talk to UI directly.
 - The buffer does not choose translation providers.
+- Tail refinements may replace recent overlapping segments, but historical order still remains chronological.
 
 ### 4.6 `TranslateServicing`
 
 Responsibilities:
 
 - Accept committed segments
-- Apply routing policy
-- React to network quality changes
-- Preserve ordering semantics
-- Emit translation success or failure events
+- Keep translation ordering stable
+- Expose backend selection updates
+- Emit `.translationFinished` or `.translationFailed`
 
-Current placeholder:
+Current live implementations:
 
-- The stub translation service simulates:
-  - remote translation when network is good
-  - system translation fallback when network is constrained
-  - original-only fallback when no translation path is available
+- `TranslationRouterService`
+- `LocalOllamaTranslationService`
+- `NativeTranslationService` (App target on macOS 15 when `Translation` is available)
+- `StubTranslateService`
 
-Future implementation rule:
+Rules:
 
-- Preserve serial ordering. Do not send parallel writes that can reorder UI output.
-- Translation failure is non-fatal to the live session.
-- Translation must never block original captions.
+- Translation operates on committed segments only.
+- Translation failure is non-fatal to the live subtitle session.
+- Translation must not block original subtitle rendering.
 
 ### 4.7 `OverlayRendering`
 
 Responsibilities:
 
-- Render the latest overlay read model
-- Toggle visibility
+- Render the latest `OverlayRenderModel`
+- Toggle overlay visibility
 
-Contract:
+Current live implementations:
 
-- This interface consumes `OverlayRenderModel`.
-- UI layers should not own transcript truth.
+- `RealOverlayRenderer` in the app target
+- `StubOverlayRenderer` in core-only or test wiring
+
+Rule:
+
+- Renderers consume read models only; they must never mutate transcript state.
 
 ### 4.8 `SettingsStoring`
 
 Responsibilities:
 
-- Load persisted settings
-- Save updated settings
+- Load settings
+- Save settings
 
-Current placeholder:
+Current live implementation:
 
-- In-memory only. Replace with `UserDefaults` later without changing callers.
+- `InMemorySettingsStore`
 
-## 5. Coordinator Rules
+Rule:
+
+- Replace the storage backend without changing the coordinator or views.
+
+## 5. Current Live Runtime Graph
+
+### 5.1 Bootstrap Wiring
+
+Files:
+
+- [SpeechflowContainer.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/App/SpeechflowContainer.swift)
+- [SpeechflowApp.swift](/Users/asukabot/Speechflow/Sources/SpeechflowApp/SpeechflowApp.swift)
+
+Current live graph:
+
+1. `SelectableAudioCaptureService`
+   - microphone: `SystemAudioEngineService`
+   - system audio: `ScreenCaptureSystemAudioService`
+2. `PreferredLocalASRService`
+   - primary: `WhisperTurboASRService`
+   - fallback: `SpeechFrameworkASRService`
+3. `TranslationRouterService`
+   - local provider: `LocalOllamaTranslationService`
+   - system provider:
+     - `NativeTranslationService` in the app target on macOS 15
+     - `StubTranslateService` in core bootstrap and older environments
+4. `AppCoordinator`
+5. `RealOverlayRenderer` in app target, `StubOverlayRenderer` in core bootstrap
+
+### 5.2 End-to-End Data Flow
+
+The current live flow is:
+
+1. Capture source produces audio buffers.
+2. `WhisperTurboASRService` resamples to 16 kHz mono and sends audio windows to the Python `faster-whisper` runner.
+3. `PreferredLocalASRService` forwards primary ASR events, or switches to `SpeechFrameworkASRService` if the primary fails.
+4. `AppCoordinator` updates partial text, schedules commit timers, and commits draft text when final/stable/silence conditions are met.
+5. `TranscriptBuffer` suppresses duplicate commits and folds recent overlapping refinements.
+6. `TranslationRouterService` chooses a provider based on `translationBackendPreference`, then may fallback across providers if the active provider fails.
+7. `TranslationResult` is applied back by `segment.id`.
+8. `OverlayViewModelBuilder` converts the snapshot into render lines.
+9. `OverlayRendering` updates the visible overlay.
+
+## 6. ASR Runtime Contracts
+
+Primary files:
+
+- [WhisperTurboASRService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/WhisperTurboASRService.swift)
+- [faster_whisper_runner.py](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Resources/faster_whisper_runner.py)
+
+### 6.1 Primary Recognition Path
+
+`WhisperTurboASRService` is the primary local recognizer.
+
+It currently:
+
+- validates a local Python 3 runtime
+- launches a persistent bundled Python runner
+- uses `faster-whisper` as the inference engine
+- defaults to the `turbo` model
+- converts incoming audio to 16 kHz mono
+- emits partial and final events
+- performs aggressive subtitle-oriented segmentation before forwarding text downstream
+
+### 6.2 Fallback Path
+
+`PreferredLocalASRService` automatically falls back to `SpeechFrameworkASRService` when:
+
+- the primary recognizer fails to start
+- the primary emits `.localASRFailed` during a live session
+
+This fallback is non-fatal. The session should continue if the fallback starts successfully.
+
+### 6.3 Current Segmentation Rules
+
+Segmentation is intentionally layered:
+
+1. Prefer `faster-whisper`'s own returned segment boundaries.
+2. If the model returns multiple segments, commit the earliest segment and keep the tail rolling as partial text.
+3. If the model returns a single long segment, apply heuristic split rules:
+   - terminal punctuation first
+   - clause punctuation next
+   - token-boundary forced split last
+4. Strip already committed leading overlap from later rolling transcriptions to avoid resending long repeated prefixes.
+
+This logic is still under active tuning. It is expected to evolve.
+
+### 6.4 ASR Environment Variables
+
+Most important runtime overrides:
+
+- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH`
+- `SPEECHFLOW_FASTER_WHISPER_MODEL`
+- `SPEECHFLOW_FASTER_WHISPER_MODEL_PATH`
+- `SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT`
+- `SPEECHFLOW_FASTER_WHISPER_DEVICE`
+- `SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE`
+- `SPEECHFLOW_WHISPER_POLL_SECONDS`
+- `SPEECHFLOW_WHISPER_MIN_START_SECONDS`
+- `SPEECHFLOW_WHISPER_MIN_INCREMENT_SECONDS`
+- `SPEECHFLOW_WHISPER_MAX_WINDOW_SECONDS`
+- `SPEECHFLOW_FASTER_WHISPER_BEAM_SIZE`
+- `SPEECHFLOW_FASTER_WHISPER_BEST_OF`
+- `SPEECHFLOW_FASTER_WHISPER_VAD_MIN_SPEECH_MS`
+- `SPEECHFLOW_FASTER_WHISPER_VAD_MIN_SILENCE_MS`
+- `SPEECHFLOW_FASTER_WHISPER_VAD_SPEECH_PAD_MS`
+
+Rule:
+
+- Future ASR changes should keep environment-based tuning overrides compatible unless there is a strong reason to break them.
+
+## 7. Translation Runtime Contracts
+
+Primary files:
+
+- [TranslationRouterService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/TranslationRouterService.swift)
+- [LocalOllamaRuntime.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/LocalOllamaRuntime.swift)
+- [NativeTranslationService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/NativeTranslationService.swift)
+
+### 7.1 Router Contract
+
+`TranslationRouterService` is the only translation service that `AppCoordinator` should depend on.
+
+It owns:
+
+- initial provider selection
+- per-segment pending execution tracking
+- fallback routing after provider failure
+- final normalization of `TranslationExecutionMetadata`
+
+Rule:
+
+- Keep the provider split behind the router. Do not let `AppCoordinator` call provider-specific APIs.
+
+### 7.2 Local Provider Contract
+
+`LocalOllamaTranslationService` is the current local model provider.
+
+It currently:
+
+- checks installed models through `GET /api/tags`
+- selects a preferred model descriptor
+- builds a spoken-style live-subtitle prompt
+- queues requests through a serial `AsyncStream`
+- calls `LocalOllamaRuntime` for the actual HTTP `POST /api/generate`
+
+Rule:
+
+- Local translation must remain serial and ordered.
+
+### 7.3 System Provider Contract
+
+The "system" provider is environment-dependent:
+
+- In the app target on macOS 15, `NativeTranslationService` uses `TranslationSession`.
+- In core bootstrap or unsupported environments, `StubTranslateService` is used instead.
+
+This distinction matters for docs and debugging:
+
+- core-only runs can compile without proving the real system translation path
+- app runs on macOS 15 have a real system translation fallback path
+
+### 7.4 Current Default Backend
+
+The default backend preference is `localOllama`.
+
+The default model descriptor is `qwen3.5:2b`, unless overridden.
+
+### 7.5 Translation Environment Variables
+
+Most important translation overrides:
+
+- `SPEECHFLOW_OLLAMA_MODEL`
+- `SPEECHFLOW_LOCAL_MODEL_ID`
+- `SPEECHFLOW_LOCAL_MODEL_NAME`
+- `SPEECHFLOW_OLLAMA_BASE_URL`
+- `SPEECHFLOW_OLLAMA_TIMEOUT_SECONDS`
+- `SPEECHFLOW_OLLAMA_KEEP_ALIVE`
+- `SPEECHFLOW_OLLAMA_MAX_TOKENS`
+- `SPEECHFLOW_OLLAMA_THINK`
+
+Rule:
+
+- Keep model selection and Ollama endpoint resolution inside translation services, not in views or the coordinator.
+
+## 8. Coordinator Rules
 
 File: [AppCoordinator.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Coordinator/AppCoordinator.swift)
 
-The coordinator is the only place that should:
+The coordinator is the only layer that should:
 
-- Mutate `AppState`
-- Interpret top-level events
-- Decide when to start or stop services
-- Decide when a committed segment should be translated
-- Apply network quality updates to translation routing
-- Trigger overlay re-rendering
+- mutate `AppState`
+- start, pause, resume, or stop the active session
+- request permissions
+- react to ASR partial/final events
+- trigger commit timing
+- decide when a committed segment is sent to translation
+- re-render the overlay
 
-Rules:
+Important current behavior:
 
-- Keep business flow centralized here.
-- Do not move app-state transitions into UI or service layers.
-- Prefer new event handlers over ad hoc cross-module calls.
-- Do not escalate the app to fatal error state for translation degradation alone.
+- Commit timing is optimized for subtitle-style rolling output, not paragraph buffering.
+- `silenceTimeout` and `partialStableTimeout` both participate.
+- `Pause` cancels translation work and stops the current ASR stream.
+- `Stop` tears down capture, ASR, network monitoring, translation, and transcript state.
 
-## 6. Rendering Model
+Do not:
+
+- move app-state transitions into SwiftUI views
+- let services directly orchestrate each other
+- make translation failure escalate to fatal app termination by itself
+
+## 9. Rendering Model
 
 Files:
 
 - [OverlayRenderModel.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Overlay/OverlayRenderModel.swift)
 - [OverlayViewModel.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Overlay/OverlayViewModel.swift)
+- [RealOverlayRenderer.swift](/Users/asukabot/Speechflow/Sources/SpeechflowApp/RealOverlayRenderer.swift)
 
-Rendering rules:
+Rules:
 
-- Original lines render committed source segments first.
-- Current partial is appended as a non-committed line.
-- Translated lines include only segments with `translatedText`.
-- The builder trims both areas to the configured line limit.
+- Original lines render committed source segments first, then the active partial line.
+- Translated lines render only committed segments that already have `translatedText`.
+- UI should reflect the current snapshot, not infer hidden transcript state on its own.
 
-Important constraint:
+Current implementation detail:
 
-- The current builder generates a fresh UUID for the active partial line. Real UI diffing can replace this with a more stable transient identity later.
+- `RealOverlayRenderer` forwards render updates onto `@MainActor`.
 
-## 7. Current Stubs
+## 10. Developer Entry Points
 
-File: [StubServices.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/StubServices.swift)
+Useful local entry points:
 
-Available placeholders:
+- Build the app bundle:
+  - [build_dev_app_bundle.sh](/Users/asukabot/Speechflow/Scripts/build_dev_app_bundle.sh)
 
-- `StubAudioEngineService`
-- `StubASRService`
-- `StubNetworkMonitor`
-- `StubTranslateService`
-- `StubOverlayRenderer`
-- `SystemClock`
+- Run the translation benchmark:
+  - [run_local_translation_bench.sh](/Users/asukabot/Speechflow/Scripts/run_local_translation_bench.sh)
+  - [main.swift](/Users/asukabot/Speechflow/Sources/LocalTranslationBench/main.swift)
 
-Why these exist:
+- Troubleshooting guide:
+  - [TROUBLESHOOTING.md](/Users/asukabot/Speechflow/Docs/TROUBLESHOOTING.md)
 
-- Allow the package to compile now
-- Give future agents stable dependency injection points
-- Allow unit tests to be added before real framework integration
+Important runtime caveat:
 
-## 8. Local Recognition Backend
+- First-time permission prompts should be tested through the built `.app`, not raw `swift run`, because `SystemPermissionService` intentionally avoids risky TCC prompts in a non-bundled process.
 
-File: [LocalRecognitionServices.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/LocalRecognitionServices.swift)
+## 11. Known Incomplete Areas
 
-Live implementations now available:
+These are deliberate gaps, not hidden bugs in the interface design:
 
-- `SystemAudioEngineService`
-- `SpeechFrameworkASRService`
-
-Behavior:
-
-- `SystemAudioEngineService` owns the `AVAudioEngine` input tap and forwards `AVAudioPCMBuffer` frames.
-- `SpeechFrameworkASRService` binds to the audio service, creates an `SFSpeechAudioBufferRecognitionRequest`, and emits partial/final ASR events.
-- The recognizer is configured for local-first recognition by setting `requiresOnDeviceRecognition = true`.
-- The recognizer can update its source locale through `updateLocaleIdentifier`.
-
-## 9. Permission Backend
-
-File: [PermissionServices.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/PermissionServices.swift)
-
-Live implementation:
-
-- `SystemPermissionService`
-
-Behavior:
-
-- Requests microphone access via `AVCaptureDevice.requestAccess(for: .audio)`
-- Requests speech authorization via `SFSpeechRecognizer.requestAuthorization`
-- Emits a unified `PermissionSet` once the current permission state is known
-
-## 10. Bootstrap Entry Point
-
-File: [SpeechflowContainer.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/App/SpeechflowContainer.swift)
-
-`SpeechflowBootstrap.makeDefaultContainer()` provides:
-
-- a default settings store
-- a transcript buffer
-- a network monitor
-- a permission service
-- live local recognition services
-- a fully wired `AppCoordinator`
-
-Additional factory:
-
-- `SpeechflowBootstrap.makeStubContainer()`
-  Keeps the old stub-only wiring for tests and isolated flow checks.
-
-Usage rule:
-
-- Replace the stub services with real implementations through the same constructor path rather than bypassing the container.
-
-## 11. Next Implementation Targets
-
-The next agents should implement features in this order:
-
-1. Replace `InMemorySettingsStore` with `UserDefaults`
-2. Replace `StubOverlayRenderer` with a real `NSPanel`-backed renderer
-3. Replace `StubNetworkMonitor` with a real reachability or path monitor
-4. Replace `StubTranslateService` with a serial translation router:
-   remote-first, system fallback, original-only fallback
+- `InMemorySettingsStore` is still in use.
+- `StubNetworkMonitor` is still in use.
+- `TranslationPolicy` naming still reflects an older remote-first design.
+- Subtitle segmentation is functional but still being tuned.
+- `SpeechflowContainer.makeLiveContainer()` still wires `StubOverlayRenderer`; the app target constructs its own real renderer in `SpeechflowApp`.
 
 ## 12. Change Rules for Future Agents
 
-When extending this codebase:
+When extending the codebase:
 
-- Add new shared event types in `EventModels.swift`
-- Add new shared models in `Models` before using ad hoc dictionaries or tuples
-- Prefer protocol expansion over direct concrete-type coupling
-- Keep `AppCoordinator` as the main orchestration layer
-- Preserve append-only ordering of committed transcript segments
-- Preserve the rule that only committed segments enter the formal translation path
-- Preserve the rule that ASR remains local-first and independent of network quality
+- Add shared event types in [EventModels.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Interfaces/EventModels.swift) first.
+- Add shared models in `Models` before inventing ad hoc tuples or dictionaries.
+- Keep `AppCoordinator` as the only orchestration owner.
+- Preserve `segment.id` as the identity boundary for translation application.
+- Keep translation segment-scoped and ordered.
+- Keep ASR independent from translation/network degradation.
+- Keep capture-source switching behind `AudioEngineServicing`, not in views.
 
 Do not:
 
-- Make the overlay renderer mutate transcript state
-- Make translation operate on the full transcript each update
-- Introduce parallel translation writes without explicit ordering control
-- Allow translation failure to interrupt the original subtitle path
-
-## 13. Planned Extension: Dual Capture Sources
-
-The product PRD now includes a new requirement: add a separate system-audio translation mode in addition to the existing microphone mode.
-
-This is a requirements-level direction, not a claim that the current code already supports it.
-
-Planned rules for that extension:
-
-- Keep a single active capture session at a time. The first implementation should not run microphone and system-audio capture concurrently.
-- Do not overload the existing microphone capture path with opaque branching.
-- Prefer a new shared `AudioCaptureSource` model plus source-aware coordinator logic, or a dedicated `SystemAudioCaptureServicing` protocol that plugs into the same downstream ASR pipeline.
-- Treat system-audio capture as a separate startup intent from microphone capture. The current generic `StartRequested` flow should evolve into source-specific start actions.
-- On macOS, system-audio capture should be designed around `ScreenCaptureKit` audio output, not private or hidden global audio hooks.
-- System-audio mode must have its own permission and failure handling path. Authorization failure for system audio must not break microphone translation mode.
-- Reuse the same downstream contracts after audio buffers are obtained: `LocalASRServicing`, `TranscriptBuffering`, `TranslateServicing`, `OverlayRendering`.
-
-Implementation consequence:
-
-- The coordinator remains the place that decides which capture source is active and when to transition between idle, active, paused, and stopped states.
+- make overlay code mutate transcript state
+- make translation operate on the full transcript on every partial update
+- bypass `TranslationRouterService` for provider-specific direct calls
+- make ASR depend on whether Ollama is up
+- let a local model failure crash the original subtitle chain

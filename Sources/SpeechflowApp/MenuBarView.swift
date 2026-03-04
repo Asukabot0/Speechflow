@@ -61,8 +61,10 @@ struct MenuBarView: View {
     private var statusProperties: (Color, String) {
         switch viewModel.state {
         case .idle: return (.gray, "Idle")
-        case .listening: return (.green, "Listening")
-        case .paused: return (.orange, "Paused")
+        case .listening:
+            return (.green, viewModel.activeInputSource?.displayName ?? "Live")
+        case .paused:
+            return (.orange, viewModel.activeInputSource?.displayName ?? "Paused")
         case .error: return (.red, "Error")
         }
     }
@@ -75,16 +77,25 @@ struct MenuBarView: View {
         return context.message
     }
     
+    @ViewBuilder
     private var controlsView: some View {
-        HStack(spacing: 20) {
-            switch viewModel.state {
-            case .idle, .error:
-                Button(action: { viewModel.start() }) {
-                    Label("Start", systemImage: "play.fill")
+        switch viewModel.state {
+        case .idle, .error:
+            VStack(spacing: 10) {
+                Button(action: { viewModel.startMicrophoneTranslation() }) {
+                    Label("Translate Microphone", systemImage: "mic.fill")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-            case .listening:
+
+                Button(action: { viewModel.startSystemAudioTranslation() }) {
+                    Label("Translate System Audio", systemImage: "speaker.wave.2.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        case .listening:
+            HStack(spacing: 20) {
                 Button(action: { viewModel.pause() }) {
                     Label("Pause", systemImage: "pause.fill")
                         .frame(maxWidth: .infinity)
@@ -96,7 +107,9 @@ struct MenuBarView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
-            case .paused:
+            }
+        case .paused:
+            HStack(spacing: 20) {
                 Button(action: { viewModel.resume() }) {
                     Label("Resume", systemImage: "play.fill")
                         .frame(maxWidth: .infinity)

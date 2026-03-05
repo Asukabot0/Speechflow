@@ -1,0 +1,12 @@
+{
+  "source_language": "en-US",
+  "target_language": "zh-Hans",
+  "source_text": "I clicked the submit button, but nothing happened. Could you help me check what might be wrong?",
+  "draft_translation": "我点击了提交按钮，但是没有反应。你可以帮我看看哪里可能有问题吗？",
+  "recent_context": [
+    "I already tried refreshing the page once.",
+    "The form looked complete before I submitted it."
+  ],
+  "product_context": "",
+  "reply_style": "Sound like a student answering a tester: polite, cautious, explain understanding before conclusion, and ask for clarification when information is insufficient. The reply must be bilingual in Chinese and English."
+}

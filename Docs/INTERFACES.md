@@ -31,8 +31,9 @@ Current targets:
 Notable packaging rule:
 
 - `SpeechflowCore` has no Swift package dependencies. Local ASR and translation rely on system frameworks plus local external runtimes:
-  - Python 3 + `faster-whisper`
+  - Python 3 + `qwen-asr` (with legacy `faster-whisper` compatibility)
   - local Ollama HTTP service
+- Full dependency inventory lives in [DEPENDENCIES.md](/Users/asukabot/Speechflow/Docs/DEPENDENCIES.md).
 
 ## 3. Shared Model Contracts
 
@@ -115,7 +116,7 @@ Rules:
 Important compatibility note:
 
 - `TranslationPolicy.strategy` still contains legacy names such as `remotePreferred`.
-- Current routing no longer means "remote-first network translation" in the default path. The router is now "local Ollama or system provider", but the policy type has not been renamed yet.
+- Current routing no longer means "native system translation" in the default path. The router is now "local Ollama or OpenRouter cloud provider", but the policy type has not been renamed yet.
 
 ### 3.5 Event Model
 
@@ -249,7 +250,7 @@ Current live implementations:
 
 - `TranslationRouterService`
 - `LocalOllamaTranslationService`
-- `NativeTranslationService` (App target on macOS 15 when `Translation` is available)
+- `OpenRouterTranslationService`
 - `StubTranslateService`
 
 Rules:
@@ -309,8 +310,8 @@ Current live graph:
 3. `TranslationRouterService`
    - local provider: `LocalOllamaTranslationService`
    - system provider:
-     - `NativeTranslationService` in the app target on macOS 15
-     - `StubTranslateService` in core bootstrap and older environments
+     - `OpenRouterTranslationService` in live app and live core bootstrap
+     - `StubTranslateService` in stub bootstrap
 4. `AppCoordinator`
 5. `RealOverlayRenderer` in app target, `StubOverlayRenderer` in core bootstrap
 
@@ -402,7 +403,7 @@ Primary files:
 
 - [TranslationRouterService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/TranslationRouterService.swift)
 - [LocalOllamaRuntime.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/LocalOllamaRuntime.swift)
-- [NativeTranslationService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/NativeTranslationService.swift)
+- [OpenRouterTranslationService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/OpenRouterTranslationService.swift)
 
 ### 7.1 Router Contract
 
@@ -437,15 +438,15 @@ Rule:
 
 ### 7.3 System Provider Contract
 
-The "system" provider is environment-dependent:
+The "system" provider name is legacy routing terminology.
 
-- In the app target on macOS 15, `NativeTranslationService` uses `TranslationSession`.
-- In core bootstrap or unsupported environments, `StubTranslateService` is used instead.
+In the live codebase it now means the cloud translation path:
 
-This distinction matters for docs and debugging:
+- `OpenRouterTranslationService` sends translation requests to OpenRouter
+- default cloud model: `openai/gpt-oss-120b`
+- the local Ollama provider can fall back into this cloud provider when the local route fails
 
-- core-only runs can compile without proving the real system translation path
-- app runs on macOS 15 have a real system translation fallback path
+In stub bootstrap, `StubTranslateService` is used instead.
 
 ### 7.4 Current Default Backend
 
@@ -465,6 +466,12 @@ Most important translation overrides:
 - `SPEECHFLOW_OLLAMA_KEEP_ALIVE`
 - `SPEECHFLOW_OLLAMA_MAX_TOKENS`
 - `SPEECHFLOW_OLLAMA_THINK`
+- `SPEECHFLOW_OPENROUTER_API_KEY`
+- `OPENROUTER_API_KEY`
+- `SPEECHFLOW_OPENROUTER_BASE_URL`
+- `OPENROUTER_BASE_URL`
+- `SPEECHFLOW_OPENROUTER_MODEL`
+- `OPENROUTER_MODEL`
 
 Rule:
 

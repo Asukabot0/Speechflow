@@ -22,11 +22,13 @@ public final class AppCoordinator: SpeechflowCoordinating {
     private var shouldStartWhenPermissionsResolve = false
     private var pendingSilenceCommit: DispatchWorkItem?
     private var pendingStableCommit: DispatchWorkItem?
+    private var pendingTranslationSegments: [TranscriptSegment] = []
+    private let maxTranslationAccumulationCharacters = 50
 
-    private let minimumStableCommitCharacters = 6
-    private let minimumSemanticChunkCharacters = 14
-    private let minimumSemanticChunkTokens = 4
-    private let shortFragmentTokenLimit = 2
+    private let minimumStableCommitCharacters = 4
+    private let minimumSemanticChunkCharacters = 8
+    private let minimumSemanticChunkTokens = 3
+    private let shortFragmentTokenLimit = 1
     private let shortPhraseExtraCommitDelay: TimeInterval = 0.4
     private let minimumPunctuatedCommitDelay: TimeInterval = 0.45
     private let minimumStableCommitDelay: TimeInterval = 0.35
@@ -60,6 +62,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         self.translateService.updateLanguagePair(self.settings.languagePair)
         self.translateService.updatePolicy(self.settings.translationPolicy)
         self.translateService.updateBackendPreference(self.settings.translationBackendPreference)
+        self.translateService.updateOpenRouterAPIKey(self.settings.openRouterAPIKey)
         self.translateService.updateNetworkQuality(networkQuality)
         self.overlayRenderer.setVisibility(self.settings.overlayVisibleByDefault)
     }
@@ -104,7 +107,14 @@ public final class AppCoordinator: SpeechflowCoordinating {
         case .partialStableTimeoutTriggered:
             commitCurrentDraft(reason: .partialStabilized)
         case .translationFinished(let result):
-            print("[Coordinator] .translationFinished: \"\(result.text?.prefix(40) ?? "nil")\"")
+            let preview = result.text ?? result.assistantText ?? "nil"
+            print("[Coordinator] .translationFinished: \"\(preview.prefix(40))\"")
+            if let text = result.text, !text.isEmpty {
+                logToFile(text, prefix: "Translated")
+            }
+            if let assistantText = result.assistantText, !assistantText.isEmpty {
+                logToFile(assistantText, prefix: "Assistant")
+            }
             _ = transcriptBuffer.applyTranslationResult(
                 result,
                 at: clock.now
@@ -171,6 +181,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         }
 
         cancelAutoCommitTimers()
+        flushPendingTranslation()
         audioService.pauseCapture()
         asrService.stopStreaming()
         networkMonitor.stop()
@@ -214,6 +225,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         isAwaitingPermissions = false
         shouldStartWhenPermissionsResolve = false
         cancelAutoCommitTimers()
+        flushPendingTranslation()
         audioService.stopCapture()
         asrService.stopStreaming()
         networkMonitor.stop()
@@ -269,8 +281,80 @@ public final class AppCoordinator: SpeechflowCoordinating {
         }
 
         cancelAutoCommitTimers()
-        _ = transcriptBuffer.applyPartial(text)
-        commitCurrentDraft(reason: .finalResult)
+
+        let chunks = splitIntoTranslationChunks(text)
+        for chunk in chunks {
+            _ = transcriptBuffer.applyPartial(chunk)
+            commitCurrentDraft(reason: .finalResult)
+        }
+    }
+
+    private func splitIntoTranslationChunks(_ text: String) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return []
+        }
+
+        let terminals: Set<Character> = [".", "!", "?", "。", "！", "？"]
+        var sentences: [String] = []
+        var current = ""
+
+        for char in trimmed {
+            current.append(char)
+            if terminals.contains(char) {
+                let sentence = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !sentence.isEmpty {
+                    sentences.append(sentence)
+                }
+                current = ""
+            }
+        }
+
+        let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty {
+            sentences.append(remaining)
+        }
+
+        // Force-split any sentence over 80 chars at clause boundaries
+        var result: [String] = []
+        for sentence in sentences {
+            if sentence.count > 80 {
+                let subChunks = splitAtClauseBoundaries(sentence, maxChars: 80)
+                result.append(contentsOf: subChunks)
+            } else {
+                result.append(sentence)
+            }
+        }
+
+        return result.isEmpty ? [trimmed] : result
+    }
+
+    private func splitAtClauseBoundaries(_ text: String, maxChars: Int) -> [String] {
+        let clauseBreaks: Set<Character> = [",", ";", ":", "，", "；", "：", "、"]
+        var chunks: [String] = []
+        var current = ""
+
+        for char in text {
+            current.append(char)
+            if current.count >= maxChars, clauseBreaks.contains(char) {
+                let chunk = current.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !chunk.isEmpty {
+                    chunks.append(chunk)
+                }
+                current = ""
+            }
+        }
+
+        let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !remaining.isEmpty {
+            if let lastChunk = chunks.last, lastChunk.count + remaining.count <= maxChars {
+                chunks[chunks.count - 1] = lastChunk + " " + remaining
+            } else {
+                chunks.append(remaining)
+            }
+        }
+
+        return chunks.isEmpty ? [text] : chunks
     }
 
     private func commitCurrentDraft(reason: CommitReason) {
@@ -294,9 +378,67 @@ public final class AppCoordinator: SpeechflowCoordinating {
             return
         }
 
-        _ = transcriptBuffer.markTranslationStarted(for: segment.id)
+        accumulateForTranslation(segment)
+    }
+
+    private func accumulateForTranslation(_ segment: TranscriptSegment) {
+        pendingTranslationSegments.append(segment)
+
+        let accumulatedText = pendingTranslationSegments
+            .map(\.sourceText)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if endsWithTerminalPunctuation(accumulatedText)
+            || accumulatedText.count >= maxTranslationAccumulationCharacters {
+            flushPendingTranslation()
+        }
+    }
+
+    private func flushPendingTranslation() {
+        guard !pendingTranslationSegments.isEmpty else {
+            return
+        }
+
+        let mergedText = pendingTranslationSegments
+            .map(\.sourceText)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !mergedText.isEmpty,
+              let lastSegment = pendingTranslationSegments.last else {
+            pendingTranslationSegments.removeAll()
+            return
+        }
+
+        logToFile(mergedText, prefix: "Original")
+
+        guard settings.translationEnabledByDefault else {
+            pendingTranslationSegments.removeAll()
+            return
+        }
+
+        let normalizedMergedText = mergedText
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .lowercased()
+
+        let translationSegment = TranscriptSegment(
+            id: lastSegment.id,
+            sourceText: mergedText,
+            normalizedSourceText: normalizedMergedText,
+            status: .committed,
+            createdAt: lastSegment.createdAt,
+            committedAt: lastSegment.committedAt,
+            sourceLanguage: lastSegment.sourceLanguage,
+            targetLanguage: lastSegment.targetLanguage
+        )
+
+        pendingTranslationSegments.removeAll()
+
+        _ = transcriptBuffer.markTranslationStarted(for: lastSegment.id)
         renderCurrentSnapshot()
-        translateService.enqueue(segment)
+        translateService.enqueue(translationSegment)
     }
 
     private func renderCurrentSnapshot() {
@@ -329,6 +471,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
         translateService.updateLanguagePair(newSettings.languagePair)
         translateService.updatePolicy(newSettings.translationPolicy)
         translateService.updateBackendPreference(newSettings.translationBackendPreference)
+        translateService.updateOpenRouterAPIKey(newSettings.openRouterAPIKey)
         overlayRenderer.setVisibility(newSettings.overlayVisibleByDefault)
         renderCurrentSnapshot()
     }
@@ -556,6 +699,27 @@ public final class AppCoordinator: SpeechflowCoordinating {
 
         let tunedDelay = configuredPauseCommitDelay * 0.72
         return max(0.7, min(tunedDelay, configuredPauseCommitDelay + 0.18))
+    }
+
+    private func logToFile(_ text: String, prefix: String) {
+        DispatchQueue.global(qos: .utility).async {
+            let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            let fileURL = documentsURL.appendingPathComponent("Speechflow_Transcript.txt")
+            let formatter = DateFormatter()
+            formatter.dateFormat = "HH:mm:ss"
+            let timestamp = formatter.string(from: Date())
+            let logEntry = "[\(timestamp)] \(prefix): \(text)\n"
+            
+            if let data = logEntry.data(using: .utf8) {
+                if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
+                    fileHandle.seekToEndOfFile()
+                    fileHandle.write(data)
+                    try? fileHandle.close()
+                } else {
+                    try? data.write(to: fileURL)
+                }
+            }
+        }
     }
 
     private func isRealtimeSubtitleCommitCandidate(_ text: String) -> Bool {

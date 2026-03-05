@@ -10,15 +10,12 @@ final class AppViewModel: ObservableObject {
     @Published var state: AppState
     @Published var settings: SpeechflowSettings
     @Published var activeInputSource: AudioInputSource?
-    
-    let nativeTranslationService: Any?
 
-    init(coordinator: AppCoordinator, nativeTranslationService: Any? = nil) {
+    init(coordinator: AppCoordinator) {
         self.coordinator = coordinator
         self.state = coordinator.state
         self.settings = coordinator.settings
         self.activeInputSource = coordinator.activeInputSource
-        self.nativeTranslationService = nativeTranslationService
 
         // Simple polling mechanism since AppCoordinator is not ObservableObject currently
         pollTask = Task { @MainActor [weak self] in
@@ -136,6 +133,16 @@ final class AppViewModel: ObservableObject {
 
         var newSettings = settings
         newSettings.translationBackendPreference = backendPreference
+        updateSettings(newSettings)
+    }
+
+    func updateOpenRouterAPIKey(_ apiKey: String) {
+        guard settings.openRouterAPIKey != apiKey else {
+            return
+        }
+
+        var newSettings = settings
+        newSettings.openRouterAPIKey = apiKey
         updateSettings(newSettings)
     }
 

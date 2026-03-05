@@ -85,6 +85,7 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
     public var targetBackgroundColor: ColorComponents
     public var sourceTextColor: ColorComponents
     public var targetTextColor: ColorComponents
+    public var openRouterAPIKey: String
 
     public init(
         fontSize: Double = 18,
@@ -101,7 +102,8 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
         sourceBackgroundColor: ColorComponents = ColorComponents(red: 0, green: 0, blue: 0, alpha: 0.4),
         targetBackgroundColor: ColorComponents = ColorComponents(red: 0, green: 0, blue: 0, alpha: 0.4),
         sourceTextColor: ColorComponents = ColorComponents(red: 1, green: 1, blue: 1),
-        targetTextColor: ColorComponents = ColorComponents(red: 1, green: 1, blue: 0)
+        targetTextColor: ColorComponents = ColorComponents(red: 1, green: 1, blue: 0),
+        openRouterAPIKey: String = ""
     ) {
         self.fontSize = fontSize
         self.opacity = opacity
@@ -118,6 +120,7 @@ public struct SpeechflowSettings: Equatable, Codable, Sendable {
         self.targetBackgroundColor = targetBackgroundColor
         self.sourceTextColor = sourceTextColor
         self.targetTextColor = targetTextColor
+        self.openRouterAPIKey = openRouterAPIKey
     }
 
     public static let defaultValue = SpeechflowSettings()

@@ -83,6 +83,7 @@ public final class TranscriptBuffer: TranscriptBuffering {
         }
 
         committedSegments[index].status = .translating
+        committedSegments[index].assistantStatus = .asking
         return snapshot
     }
 
@@ -92,12 +93,35 @@ public final class TranscriptBuffer: TranscriptBuffering {
         }
 
         committedSegments[index].translatedAt = at
+        let translatedText = result.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let assistantText = result.assistantText?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let assistantQuestionSummary = result.assistantQuestionSummary?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let isAssistantOnlyUpdate = result.backend == .remote && result.text == nil
 
-        if let text = result.text, !text.isEmpty {
-            committedSegments[index].translatedText = text
-            committedSegments[index].status = .translated
+        if isAssistantOnlyUpdate {
+            committedSegments[index].assistantText = assistantText.isEmpty ? nil : assistantText
+            committedSegments[index].assistantQuestionSummary = assistantQuestionSummary.isEmpty ? nil : assistantQuestionSummary
+            if let assistantStatus = result.assistantStatus {
+                committedSegments[index].assistantStatus = assistantStatus
+            } else if !assistantText.isEmpty {
+                committedSegments[index].assistantStatus = .answered
+            }
         } else {
-            committedSegments[index].translatedText = nil
+            committedSegments[index].translatedText = translatedText.isEmpty ? nil : translatedText
+            if let assistantStatus = result.assistantStatus {
+                committedSegments[index].assistantStatus = assistantStatus
+            }
+        }
+
+        let hasTranslatedText = !(committedSegments[index].translatedText?.isEmpty ?? true)
+        let hasAssistantText = !(committedSegments[index].assistantText?.isEmpty ?? true)
+
+        if hasTranslatedText || hasAssistantText {
+            committedSegments[index].status = .translated
+        } else if isAssistantOnlyUpdate, committedSegments[index].status == .translating {
+            committedSegments[index].status = .translating
+        } else {
             committedSegments[index].status = .skipped
         }
 
@@ -110,6 +134,8 @@ public final class TranscriptBuffer: TranscriptBuffering {
         }
 
         committedSegments[index].translatedText = "Translation failed: \(message)"
+        committedSegments[index].assistantText = nil
+        committedSegments[index].assistantQuestionSummary = nil
         committedSegments[index].status = .failed
         return snapshot
     }
@@ -152,6 +178,7 @@ public final class TranscriptBuffer: TranscriptBuffering {
               let lastSegment = committedSegments.last,
               lastSegment.sourceLanguage == languagePair.sourceCode,
               lastSegment.targetLanguage == languagePair.targetCode,
+              lastSegment.status == .committed,
               let committedAt = lastSegment.committedAt,
               now.timeIntervalSince(committedAt) <= refinementReplacementWindow,
               shouldReplaceRecentSegment(

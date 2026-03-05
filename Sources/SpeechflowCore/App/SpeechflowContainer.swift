@@ -38,7 +38,7 @@ public enum SpeechflowBootstrap {
     }
 
     public static func makeLiveContainer() -> SpeechflowContainer {
-        let settingsStore = InMemorySettingsStore()
+        let settingsStore = UserDefaultsSettingsStore()
         let settings = settingsStore.load()
 
         let audioService = SelectableAudioCaptureService(
@@ -57,9 +57,15 @@ public enum SpeechflowBootstrap {
         )
         let networkMonitor = StubNetworkMonitor()
         let permissionService = SystemPermissionService()
-        let translateService = TranslationRouterService(
+        let subtitleTranslationProvider = TranslationRouterService(
             preferredBackend: settings.translationBackendPreference,
-            systemProvider: StubTranslateService()
+            systemProvider: LocalOllamaTranslationService()
+        )
+        let assistantProvider = OpenRouterTranslationService()
+        assistantProvider.updateOpenRouterAPIKey(settings.openRouterAPIKey)
+        let translateService = ParallelTranslateService(
+            translationProvider: subtitleTranslationProvider,
+            assistantProvider: assistantProvider
         )
         let overlayRenderer = StubOverlayRenderer()
         let transcriptBuffer = TranscriptBuffer(

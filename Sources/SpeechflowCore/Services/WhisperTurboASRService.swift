@@ -17,15 +17,15 @@ public enum WhisperTurboASRError: LocalizedError {
         case .executableUnavailable(let path):
             return "Python 3 was not found at \(path). Install Python 3 or set SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH."
         case .runnerUnavailable(let path):
-            return "The bundled faster-whisper runner was not found at \(path)."
+            return "The bundled ASR runner was not found at \(path)."
         case .modelUnavailable(let path):
-            return "The configured faster-whisper model directory was not found at \(path)."
+            return "The configured ASR model directory was not found at \(path)."
         case .transcriberLaunchFailed(let message):
-            return "The faster-whisper runner could not start: \(message)"
+            return "The ASR runner could not start: \(message)"
         case .transcriberFailed(let message):
-            return "faster-whisper transcription failed: \(message)"
+            return "ASR transcription failed: \(message)"
         case .transcriptionOutputMissing:
-            return "faster-whisper finished without producing any transcript output."
+            return "The ASR runner finished without producing any transcript output."
         }
     }
 }
@@ -223,7 +223,7 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
 
     public func startStreaming(eventSink: @escaping (SpeechflowEvent) -> Void) throws {
         try runtime.validateAvailability()
-        debugLog("WhisperTurboASRService validated faster-whisper runtime")
+        debugLog("WhisperTurboASRService validated ASR runtime")
 
         let shouldThrowAlreadyRunning = controlQueue.sync { () -> Bool in
             if isRunning {
@@ -506,7 +506,7 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
             return true
         }
 
-        guard stableRepeatCount >= 1 else {
+        guard stableRepeatCount >= 0 else {
             return false
         }
 
@@ -711,19 +711,19 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
         "："
     ]
 
-    private static let splitTerminalTriggerCharacters = 18
-    private static let splitClauseTriggerCharacters = 26
-    private static let splitClauseTriggerTokens = 5
-    private static let splitForceCharacters = 64
-    private static let splitForceTokens = 10
-    private static let splitMinimumTerminalCharacters = 12
-    private static let splitMinimumClauseCharacters = 18
-    private static let splitMinimumForcedCharacters = 24
-    private static let splitMinimumTailCharacters = 8
-    private static let splitMinimumTerminalTokens = 3
-    private static let splitMinimumClauseTokens = 4
-    private static let splitMinimumForcedTokens = 5
-    private static let splitMinimumTailTokens = 2
+    private static let splitTerminalTriggerCharacters = 10
+    private static let splitClauseTriggerCharacters = 16
+    private static let splitClauseTriggerTokens = 3
+    private static let splitForceCharacters = 36
+    private static let splitForceTokens = 7
+    private static let splitMinimumTerminalCharacters = 6
+    private static let splitMinimumClauseCharacters = 10
+    private static let splitMinimumForcedCharacters = 16
+    private static let splitMinimumTailCharacters = 4
+    private static let splitMinimumTerminalTokens = 2
+    private static let splitMinimumClauseTokens = 2
+    private static let splitMinimumForcedTokens = 3
+    private static let splitMinimumTailTokens = 1
     private static func isSemanticChunkCandidate(_ text: String) -> Bool {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -735,12 +735,12 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
         }
 
         let tokenCount = trimmed.split(whereSeparator: \.isWhitespace).count
-        if tokenCount >= 4 && trimmed.count >= 14 {
+        if tokenCount >= 3 && trimmed.count >= 8 {
             return true
         }
 
         if tokenCount <= 1 {
-            return trimmed.count >= 14
+            return trimmed.count >= 8
         }
 
         return false
@@ -896,10 +896,6 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
 
         guard normalizedPrefix.count >= minimumPrefixCharacters,
               normalizedRemainder.count >= splitMinimumTailCharacters else {
-            return false
-        }
-
-        guard !endsWithWeakTrailingConnector(normalizedPrefix) else {
             return false
         }
 
@@ -1089,7 +1085,7 @@ private final class FasterWhisperTurboRuntime: WhisperTurboRuntime, @unchecked S
             return session
         }
         stateLock.unlock()
-        debugLog("WhisperTurboASRService launching faster-whisper runner")
+        debugLog("WhisperTurboASRService launching ASR runner")
 
         let newSession = try FasterWhisperProcessSession(
             pythonPath: descriptor.pythonPath,
@@ -1097,7 +1093,7 @@ private final class FasterWhisperTurboRuntime: WhisperTurboRuntime, @unchecked S
             environment: descriptor.runnerEnvironment(),
             timeout: descriptor.startupTimeout
         )
-        debugLog("WhisperTurboASRService faster-whisper runner ready")
+        debugLog("WhisperTurboASRService ASR runner ready")
 
         stateLock.lock()
         if let existingSession = session {
@@ -1124,6 +1120,7 @@ private final class FasterWhisperTurboRuntime: WhisperTurboRuntime, @unchecked S
 
 private struct WhisperTurboRuntimeDescriptor {
     static let defaultSampleRate = 16_000
+    static let defaultModelName = "Qwen/Qwen3-ASR-1.7B"
 
     let pythonPath: String
     let runnerPath: String
@@ -1144,7 +1141,9 @@ private struct WhisperTurboRuntimeDescriptor {
         WhisperTurboRuntimeDescriptor(
             pythonPath: resolvedPythonPath(from: environment),
             runnerPath: resolvedRunnerPath(),
-            modelName: environment["SPEECHFLOW_FASTER_WHISPER_MODEL"] ?? "turbo",
+            modelName: environment["SPEECHFLOW_ASR_MODEL"]
+                ?? environment["SPEECHFLOW_FASTER_WHISPER_MODEL"]
+                ?? defaultModelName,
             downloadRoot: resolvedDownloadRoot(from: environment),
             localModelPath: resolvedLocalModelPath(from: environment),
             sampleRate: Self.intValue(
@@ -1154,7 +1153,7 @@ private struct WhisperTurboRuntimeDescriptor {
             ),
             pollingInterval: Self.doubleValue(
                 for: "SPEECHFLOW_WHISPER_POLL_SECONDS",
-                defaultValue: 0.8,
+                defaultValue: 0.5,
                 environment: environment
             ),
             minimumStartingWindowSeconds: Self.doubleValue(
@@ -1169,7 +1168,7 @@ private struct WhisperTurboRuntimeDescriptor {
             ),
             maximumRetainedWindowSeconds: Self.doubleValue(
                 for: "SPEECHFLOW_WHISPER_MAX_WINDOW_SECONDS",
-                defaultValue: 6.5,
+                defaultValue: 4.5,
                 environment: environment
             ),
             startupTimeout: Self.doubleValue(
@@ -1209,21 +1208,28 @@ private struct WhisperTurboRuntimeDescriptor {
         var environment = base
 
         if let localModelPath {
-            environment["SPEECHFLOW_FASTER_WHISPER_MODEL_PATH"] = localModelPath
-        } else if environment["SPEECHFLOW_FASTER_WHISPER_MODEL"] == nil {
-            environment["SPEECHFLOW_FASTER_WHISPER_MODEL"] = modelName
+            if environment["SPEECHFLOW_ASR_MODEL_PATH"] == nil,
+               environment["SPEECHFLOW_FASTER_WHISPER_MODEL_PATH"] == nil {
+                environment["SPEECHFLOW_ASR_MODEL_PATH"] = localModelPath
+            }
+        } else if environment["SPEECHFLOW_ASR_MODEL"] == nil,
+                  environment["SPEECHFLOW_FASTER_WHISPER_MODEL"] == nil {
+            environment["SPEECHFLOW_ASR_MODEL"] = modelName
         }
 
-        if environment["SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"] == nil {
-            environment["SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"] = downloadRoot
+        if environment["SPEECHFLOW_ASR_DOWNLOAD_ROOT"] == nil,
+           environment["SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"] == nil {
+            environment["SPEECHFLOW_ASR_DOWNLOAD_ROOT"] = downloadRoot
         }
 
-        if environment["SPEECHFLOW_FASTER_WHISPER_DEVICE"] == nil {
-            environment["SPEECHFLOW_FASTER_WHISPER_DEVICE"] = "cpu"
+        if environment["SPEECHFLOW_ASR_DEVICE"] == nil,
+           environment["SPEECHFLOW_FASTER_WHISPER_DEVICE"] == nil {
+            environment["SPEECHFLOW_ASR_DEVICE"] = "cpu"
         }
 
-        if environment["SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE"] == nil {
-            environment["SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE"] = "int8"
+        if environment["SPEECHFLOW_ASR_COMPUTE_TYPE"] == nil,
+           environment["SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE"] == nil {
+            environment["SPEECHFLOW_ASR_COMPUTE_TYPE"] = "int8"
         }
 
         return environment
@@ -1272,7 +1278,8 @@ private struct WhisperTurboRuntimeDescriptor {
     private static func resolvedLocalModelPath(
         from environment: [String: String]
     ) -> String? {
-        guard let override = environment["SPEECHFLOW_FASTER_WHISPER_MODEL_PATH"],
+        guard let override = environment["SPEECHFLOW_ASR_MODEL_PATH"]
+            ?? environment["SPEECHFLOW_FASTER_WHISPER_MODEL_PATH"],
               !override.isEmpty else {
             return nil
         }
@@ -1283,13 +1290,14 @@ private struct WhisperTurboRuntimeDescriptor {
     private static func resolvedDownloadRoot(
         from environment: [String: String]
     ) -> String {
-        if let override = environment["SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"],
+        if let override = environment["SPEECHFLOW_ASR_DOWNLOAD_ROOT"]
+            ?? environment["SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"],
            !override.isEmpty {
             return expandedPath(for: override)
         }
 
         return expandedPath(
-            for: "~/Library/Application Support/Speechflow/Models/FasterWhisper"
+            for: "~/Library/Application Support/Speechflow/Models/ASR"
         )
     }
 
@@ -1519,7 +1527,7 @@ private final class FasterWhisperProcessSession: @unchecked Sendable {
         guard didReceive == .success else {
             throw WhisperTurboASRError.transcriberFailed(
                 message: process.isRunning
-                    ? "faster-whisper runner timed out waiting for a response."
+                    ? "The ASR runner timed out waiting for a response."
                     : recentErrorText
             )
         }
@@ -1556,7 +1564,7 @@ private final class FasterWhisperProcessSession: @unchecked Sendable {
         stderrLock.unlock()
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if normalized.isEmpty {
-            return "The faster-whisper runner exited unexpectedly."
+            return "The ASR runner exited unexpectedly."
         }
         return normalized
     }

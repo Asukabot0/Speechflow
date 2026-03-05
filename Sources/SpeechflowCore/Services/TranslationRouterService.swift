@@ -111,8 +111,8 @@ public final class LocalModelAssetStore: ModelAssetManaging {
     private func resolvedModelName() -> String {
         environmentValue(
             keys: ["SPEECHFLOW_OLLAMA_MODEL", "SPEECHFLOW_LOCAL_MODEL_ID"],
-            fallback: "qwen3.5:2b"
-        ) ?? "qwen3.5:2b"
+            fallback: "qwen3.5:0.8b"
+        ) ?? "qwen3.5:0.8b"
     }
 
     private func resolvedRuntimePreference() -> LocalModelRuntimePreference {
@@ -611,6 +611,9 @@ public final class TranslationRouterService: TranslateServicing {
         let normalizedResult = TranslationResult(
             segmentID: result.segmentID,
             text: result.text,
+            assistantText: result.assistantText,
+            assistantQuestionSummary: result.assistantQuestionSummary,
+            assistantStatus: result.assistantStatus,
             backend: result.backend,
             isDegraded: result.isDegraded || pendingExecution.didFallback,
             appliedPolish: result.backend == .remote ? result.appliedPolish : false,

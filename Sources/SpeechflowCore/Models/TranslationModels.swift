@@ -147,6 +147,9 @@ public struct TranslationExecutionMetadata: Equatable, Sendable {
 public struct TranslationResult: Equatable, Sendable {
     public let segmentID: UUID
     public let text: String?
+    public let assistantText: String?
+    public let assistantQuestionSummary: String?
+    public let assistantStatus: AssistantResponseStatus?
     public let backend: TranslationBackend
     public let isDegraded: Bool
     public let appliedPolish: Bool
@@ -155,6 +158,9 @@ public struct TranslationResult: Equatable, Sendable {
     public init(
         segmentID: UUID,
         text: String?,
+        assistantText: String? = nil,
+        assistantQuestionSummary: String? = nil,
+        assistantStatus: AssistantResponseStatus? = nil,
         backend: TranslationBackend,
         isDegraded: Bool,
         appliedPolish: Bool,
@@ -162,6 +168,9 @@ public struct TranslationResult: Equatable, Sendable {
     ) {
         self.segmentID = segmentID
         self.text = text
+        self.assistantText = assistantText
+        self.assistantQuestionSummary = assistantQuestionSummary
+        self.assistantStatus = assistantStatus
         self.backend = backend
         self.isDegraded = isDegraded
         self.appliedPolish = appliedPolish

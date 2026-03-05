@@ -29,7 +29,15 @@ final class OverlayWindowController: NSObject, ObservableObject {
     }
     
     private func setupWindow() {
-        let initialY = subtitleType == .original ? 100 : 250
+        let initialY: CGFloat
+        switch subtitleType {
+        case .original:
+            initialY = 100
+        case .translated:
+            initialY = 250
+        case .assistant:
+            initialY = 400
+        }
         let panel = NSPanel(
             contentRect: NSRect(x: 100, y: initialY, width: 800, height: 200),
             styleMask: [.borderless, .nonactivatingPanel, .resizable],

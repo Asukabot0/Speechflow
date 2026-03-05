@@ -4,6 +4,8 @@ import json
 import os
 import sys
 
+QWEN3_ASR_DEFAULT_MODEL = "Qwen/Qwen3-ASR-1.7B"
+
 
 def _env_str(key: str, default: str = "") -> str:
     value = os.environ.get(key)
@@ -48,18 +50,91 @@ def _emit(payload):
     sys.stdout.flush()
 
 
-def _load_model():
+def _coalesce_str(*values: str, default: str = "") -> str:
+    for value in values:
+        if value is None:
+            continue
+        stripped = value.strip()
+        if stripped:
+            return stripped
+    return default
+
+
+def _env_model_name() -> str:
+    return _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_MODEL"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_MODEL"),
+        default=QWEN3_ASR_DEFAULT_MODEL,
+    )
+
+
+def _env_model_path() -> str:
+    return _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_MODEL_PATH"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_MODEL_PATH"),
+    )
+
+
+def _env_download_root():
+    value = _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_DOWNLOAD_ROOT"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT"),
+    )
+    return value or None
+
+
+def _env_device() -> str:
+    return _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_DEVICE"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_DEVICE"),
+        default="cpu",
+    )
+
+
+def _env_compute_type() -> str:
+    return _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_COMPUTE_TYPE"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE"),
+        default="int8",
+    )
+
+
+def _env_local_only() -> bool:
+    return _coalesce_str(
+        os.environ.get("SPEECHFLOW_ASR_LOCAL_ONLY"),
+        os.environ.get("SPEECHFLOW_FASTER_WHISPER_LOCAL_ONLY"),
+    ).lower() in {"1", "true", "yes"}
+
+
+def _env_backend() -> str:
+    raw = _coalesce_str(os.environ.get("SPEECHFLOW_ASR_BACKEND")).lower()
+    if raw in {"qwen", "qwen_asr", "qwen3-asr"}:
+        return "qwen_asr"
+    if raw in {"whisper", "faster_whisper", "faster-whisper"}:
+        return "faster_whisper"
+    return ""
+
+
+def _resolve_backend(model_name: str, model_path: str) -> str:
+    explicit_backend = _env_backend()
+    if explicit_backend:
+        return explicit_backend
+
+    if model_path:
+        lowered_path = model_path.lower()
+        if "qwen3-asr" in lowered_path:
+            return "qwen_asr"
+        return "faster_whisper"
+
+    if "qwen3-asr" in model_name.lower():
+        return "qwen_asr"
+
+    return "faster_whisper"
+
+
+def _load_faster_whisper_model(model_ref, download_root, local_files_only, device, compute_type):
     from faster_whisper import WhisperModel
 
-    model_path = _env_str("SPEECHFLOW_FASTER_WHISPER_MODEL_PATH", "").strip()
-    model_name = _env_str("SPEECHFLOW_FASTER_WHISPER_MODEL", "turbo").strip() or "turbo"
-    model_ref = model_path or model_name
-
-    download_root = _env_str("SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT", "").strip() or None
-    local_files_only = _env_str("SPEECHFLOW_FASTER_WHISPER_LOCAL_ONLY", "").strip() in {"1", "true", "yes"}
-
-    device = _env_str("SPEECHFLOW_FASTER_WHISPER_DEVICE", "cpu").strip() or "cpu"
-    compute_type = _env_str("SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE", "int8").strip() or "int8"
     cpu_threads = _env_int("SPEECHFLOW_FASTER_WHISPER_CPU_THREADS", 0)
     num_workers = _env_int("SPEECHFLOW_FASTER_WHISPER_NUM_WORKERS", 1)
 
@@ -79,7 +154,99 @@ def _load_model():
     )
 
 
-def _transcribe(model, request):
+def _resolve_qwen_device(device: str) -> str:
+    import torch
+
+    normalized = (device or "cpu").strip().lower()
+    if normalized == "auto":
+        if torch.cuda.is_available():
+            return "cuda:0"
+        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            return "mps"
+        return "cpu"
+    return device or "cpu"
+
+
+def _resolve_qwen_dtype(device: str, compute_type: str):
+    import torch
+
+    normalized_compute_type = (compute_type or "").strip().lower()
+    if normalized_compute_type in {"bf16", "bfloat16"}:
+        return torch.bfloat16, "bfloat16"
+    if normalized_compute_type in {"fp16", "float16", "half"}:
+        return torch.float16, "float16"
+    if normalized_compute_type in {"fp32", "float32"}:
+        return torch.float32, "float32"
+
+    normalized_device = (device or "cpu").strip().lower()
+    if normalized_device.startswith("cuda"):
+        return torch.bfloat16, "bfloat16"
+    if normalized_device == "mps":
+        return torch.float16, "float16"
+    return torch.float32, "float32"
+
+
+def _load_qwen_asr_model(model_ref, download_root, local_files_only, device, compute_type):
+    try:
+        from qwen_asr import Qwen3ASRModel
+    except ImportError as exc:
+        raise RuntimeError(
+            "Qwen3-ASR requires the 'qwen-asr' Python package. Install it with 'pip install -U qwen-asr'."
+        ) from exc
+
+    resolved_device = _resolve_qwen_device(device)
+    dtype, dtype_name = _resolve_qwen_dtype(resolved_device, compute_type)
+
+    if download_root:
+        os.environ.setdefault("HF_HOME", download_root)
+    if local_files_only:
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+
+    return (
+        Qwen3ASRModel.from_pretrained(
+            model_ref,
+            dtype=dtype,
+            device_map=resolved_device,
+        ),
+        model_ref,
+        resolved_device,
+        dtype_name,
+    )
+
+
+def _load_model():
+    model_path = _env_model_path()
+    model_name = _env_model_name()
+    model_ref = model_path or model_name
+
+    download_root = _env_download_root()
+    local_files_only = _env_local_only()
+    device = _env_device()
+    compute_type = _env_compute_type()
+
+    backend = _resolve_backend(model_name, model_path)
+    if backend == "qwen_asr":
+        model, model_ref, device, compute_type = _load_qwen_asr_model(
+            model_ref=model_ref,
+            download_root=download_root,
+            local_files_only=local_files_only,
+            device=device,
+            compute_type=compute_type,
+        )
+    else:
+        model, model_ref, device, compute_type = _load_faster_whisper_model(
+            model_ref=model_ref,
+            download_root=download_root,
+            local_files_only=local_files_only,
+            device=device,
+            compute_type=compute_type,
+        )
+
+    return model, model_ref, device, compute_type, backend
+
+
+def _transcribe_faster_whisper(model, request):
     beam_size = _env_int("SPEECHFLOW_FASTER_WHISPER_BEAM_SIZE", 5)
     best_of = _env_int("SPEECHFLOW_FASTER_WHISPER_BEST_OF", 5)
     temperature = _env_float("SPEECHFLOW_FASTER_WHISPER_TEMPERATURE", 0.0)
@@ -136,9 +303,86 @@ def _transcribe(model, request):
     }
 
 
+def _get_value(item, key, default=None):
+    if isinstance(item, dict):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _qwen_language_name(language):
+    if not language or language == "auto":
+        return None
+
+    return {
+        "en": "English",
+        "zh": "Chinese",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "es": "Spanish",
+        "fr": "French",
+        "de": "German",
+    }.get(language, language)
+
+
+def _extract_text_segments(value):
+    if not isinstance(value, (list, tuple)):
+        return []
+
+    segments = []
+    for item in value:
+        if isinstance(item, str):
+            text = item.strip()
+        else:
+            text = str(_get_value(item, "text", "")).strip()
+        if text:
+            segments.append(text)
+    return segments
+
+
+def _normalize_qwen_result(result):
+    if result is None:
+        return None
+    if isinstance(result, (list, tuple)):
+        return result[0] if result else None
+    return result
+
+
+def _transcribe_qwen_asr(model, request):
+    result = model.transcribe(
+        audio=request["audio_path"],
+        language=_qwen_language_name(request.get("language")),
+    )
+    result = _normalize_qwen_result(result)
+
+    text = str(_get_value(result, "text", "") or "").strip()
+    segments = (
+        _extract_text_segments(_get_value(result, "segments"))
+        or _extract_text_segments(_get_value(result, "sentences"))
+        or _extract_text_segments(_get_value(result, "chunks"))
+    )
+
+    if text and not segments:
+        segments = [text]
+
+    return {
+        "text": text,
+        "segments": segments,
+        "language": _get_value(result, "language"),
+        "language_probability": _get_value(result, "language_probability"),
+        "duration": _get_value(result, "duration"),
+    }
+
+
+def _transcribe(model, request, backend):
+    if backend == "qwen_asr":
+        return _transcribe_qwen_asr(model, request)
+
+    return _transcribe_faster_whisper(model, request)
+
+
 def main():
     try:
-        model, model_ref, device, compute_type = _load_model()
+        model, model_ref, device, compute_type, backend = _load_model()
     except Exception as exc:
         _emit({"type": "startup_error", "message": str(exc)})
         return 1
@@ -149,6 +393,7 @@ def main():
             "model": model_ref,
             "device": device,
             "compute_type": compute_type,
+            "backend": backend,
         }
     )
 
@@ -171,7 +416,7 @@ def main():
             continue
 
         try:
-            response = _transcribe(model, request)
+            response = _transcribe(model, request, backend)
             _emit({"type": "result", "ok": True, **response})
         except Exception as exc:
             _emit({"type": "error", "message": str(exc)})

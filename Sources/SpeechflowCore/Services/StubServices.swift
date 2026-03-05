@@ -222,7 +222,9 @@ public final class StubTranslateService: TranslateServicing {
 public final class StubOverlayRenderer: OverlayRendering {
     public private(set) var lastSnapshot = OverlayRenderModel(
         originalLines: [],
-        translatedLines: []
+        translatedLines: [],
+        assistantLines: [],
+        assistantStatus: .idle
     )
     public private(set) var isVisible = false
 

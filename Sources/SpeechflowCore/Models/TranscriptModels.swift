@@ -16,11 +16,22 @@ public enum CommitReason: String, Codable, Sendable {
     case manualFlush
 }
 
+public enum AssistantResponseStatus: String, Codable, Sendable {
+    case idle
+    case asking
+    case answered
+    case noQuestion
+    case unavailable
+}
+
 public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var sourceText: String
     public var normalizedSourceText: String
     public var translatedText: String?
+    public var assistantText: String?
+    public var assistantQuestionSummary: String?
+    public var assistantStatus: AssistantResponseStatus
     public var status: SegmentStatus
     public var createdAt: Date
     public var committedAt: Date?
@@ -33,6 +44,9 @@ public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
         sourceText: String,
         normalizedSourceText: String,
         translatedText: String? = nil,
+        assistantText: String? = nil,
+        assistantQuestionSummary: String? = nil,
+        assistantStatus: AssistantResponseStatus = .idle,
         status: SegmentStatus,
         createdAt: Date = Date(),
         committedAt: Date? = nil,
@@ -44,6 +58,9 @@ public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
         self.sourceText = sourceText
         self.normalizedSourceText = normalizedSourceText
         self.translatedText = translatedText
+        self.assistantText = assistantText
+        self.assistantQuestionSummary = assistantQuestionSummary
+        self.assistantStatus = assistantStatus
         self.status = status
         self.createdAt = createdAt
         self.committedAt = committedAt

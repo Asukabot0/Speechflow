@@ -20,8 +20,8 @@ final class SettingsWindowManager {
         let hostingController = NSHostingController(rootView: settingsView)
 
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 350),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 720, height: 860),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -29,6 +29,7 @@ final class SettingsWindowManager {
         newWindow.collectionBehavior = .fullScreenNone
         newWindow.title = "Preferences"
         newWindow.contentViewController = hostingController
+        newWindow.minSize = NSSize(width: 680, height: 780)
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
 

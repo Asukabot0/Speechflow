@@ -46,6 +46,7 @@ public protocol TranslateServicing: AnyObject {
     func updatePolicy(_ policy: TranslationPolicy)
     func updateNetworkQuality(_ quality: NetworkQuality)
     func updateBackendPreference(_ backendPreference: TranslationBackendPreference)
+    func updateOpenRouterAPIKey(_ apiKey: String)
     func enqueue(_ segment: TranscriptSegment)
     func cancelAll()
 }
@@ -53,6 +54,10 @@ public protocol TranslateServicing: AnyObject {
 public extension TranslateServicing {
     func updateBackendPreference(_ backendPreference: TranslationBackendPreference) {
         _ = backendPreference
+    }
+
+    func updateOpenRouterAPIKey(_ apiKey: String) {
+        _ = apiKey
     }
 }
 

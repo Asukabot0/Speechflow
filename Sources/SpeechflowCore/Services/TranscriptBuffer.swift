@@ -159,11 +159,11 @@ public final class TranscriptBuffer: TranscriptBuffering {
         guard let lastSegment = committedSegments.last,
               lastSegment.normalizedSourceText == normalizedSourceText,
               lastSegment.sourceLanguage == languagePair.sourceCode,
-              lastSegment.targetLanguage == languagePair.targetCode,
-              let committedAt = lastSegment.committedAt else {
+              lastSegment.targetLanguage == languagePair.targetCode else {
             return false
         }
-
+        
+        let committedAt = lastSegment.committedAt ?? lastSegment.createdAt
         return now.timeIntervalSince(committedAt) <= duplicateCommitSuppressionWindow
     }
 

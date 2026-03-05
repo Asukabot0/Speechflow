@@ -61,6 +61,11 @@ let package = Package(
                     .when(platforms: [.macOS])
                 )
             ]
+        ),
+        .testTarget(
+            name: "SpeechflowCoreTests",
+            dependencies: ["SpeechflowCore"],
+            path: "Tests/SpeechflowCoreTests"
         )
     ]
 )

@@ -70,7 +70,7 @@ enum TextChunkingHelper {
 
         for char in text {
             current.append(char)
-            if current.count >= maxChars, clauseBoundaryPunctuation.contains(char) {
+            if clauseBoundaryPunctuation.contains(char) && current.count >= (maxChars / 2) {
                 let chunk = current.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !chunk.isEmpty {
                     chunks.append(chunk)
@@ -81,10 +81,15 @@ enum TextChunkingHelper {
 
         let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
         if !remaining.isEmpty {
-            if let lastChunk = chunks.last, lastChunk.count + remaining.count <= maxChars {
-                chunks[chunks.count - 1] = lastChunk + " " + remaining
-            } else {
+            if chunks.isEmpty {
                 chunks.append(remaining)
+            } else {
+                let lastChunk = chunks[chunks.count - 1]
+                if lastChunk.count + remaining.count <= maxChars {
+                    chunks[chunks.count - 1] = lastChunk + " " + remaining
+                } else {
+                    chunks.append(remaining)
+                }
             }
         }
 
@@ -97,6 +102,21 @@ enum TextChunkingHelper {
         }
         return terminalPunctuation.contains(lastCharacter)
     }
+
+    static let splitTerminalTriggerCharacters = 10
+    static let splitClauseTriggerCharacters = 16
+    static let splitClauseTriggerTokens = 3
+    static let splitForceCharacters = 36
+    static let splitForceTokens = 7
+    static let splitMinimumTerminalCharacters = 6
+    static let splitMinimumClauseCharacters = 10
+    static let splitMinimumForcedCharacters = 16
+    static let splitMinimumTailCharacters = 4
+    static let splitMinimumTerminalTokens = 2
+    static let splitMinimumClauseTokens = 2
+    static let splitMinimumForcedTokens = 3
+    static let splitMinimumTailTokens = 1
+
 
     static func endsWithClauseBoundaryPunctuation(_ text: String) -> Bool {
         guard let lastCharacter = text.last else {

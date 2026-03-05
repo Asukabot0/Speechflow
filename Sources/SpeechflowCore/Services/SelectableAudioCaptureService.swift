@@ -316,7 +316,12 @@ public final class ScreenCaptureSystemAudioService: NSObject, AudioEngineServici
                     continue
                 }
 
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
+                let byteSize = Int(audioBuffer.mDataByteSize)
+                let stride = MemoryLayout<Float>.size
+                guard byteSize >= stride else { continue }
+                let sampleCount = byteSize / stride
+                guard sampleCount > 0,
+                      Int(bitPattern: data) % MemoryLayout<Float>.alignment == 0 else { continue }
                 let samples = data.bindMemory(to: Float.self, capacity: sampleCount)
 
                 for index in 0..<sampleCount {
@@ -330,7 +335,12 @@ public final class ScreenCaptureSystemAudioService: NSObject, AudioEngineServici
                     continue
                 }
 
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int16>.size
+                let byteSize = Int(audioBuffer.mDataByteSize)
+                let stride = MemoryLayout<Int16>.size
+                guard byteSize >= stride else { continue }
+                let sampleCount = byteSize / stride
+                guard sampleCount > 0,
+                      Int(bitPattern: data) % MemoryLayout<Int16>.alignment == 0 else { continue }
                 let samples = data.bindMemory(to: Int16.self, capacity: sampleCount)
 
                 for index in 0..<sampleCount {
@@ -345,7 +355,12 @@ public final class ScreenCaptureSystemAudioService: NSObject, AudioEngineServici
                     continue
                 }
 
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int32>.size
+                let byteSize = Int(audioBuffer.mDataByteSize)
+                let stride = MemoryLayout<Int32>.size
+                guard byteSize >= stride else { continue }
+                let sampleCount = byteSize / stride
+                guard sampleCount > 0,
+                      Int(bitPattern: data) % MemoryLayout<Int32>.alignment == 0 else { continue }
                 let samples = data.bindMemory(to: Int32.self, capacity: sampleCount)
 
                 for index in 0..<sampleCount {

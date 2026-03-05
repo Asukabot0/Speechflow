@@ -178,7 +178,7 @@ open dist/Speechflow.app
 
 ## 日志与排障
 
-- 运行日志：`/tmp/speechflow_debug.log`
+- 运行日志：`log stream --predicate 'subsystem=="com.speechflow.core"'`
 - 字幕文本落盘：`~/Documents/Speechflow_Transcript.txt`
 - 详细排障：`Docs/TROUBLESHOOTING.md`
 

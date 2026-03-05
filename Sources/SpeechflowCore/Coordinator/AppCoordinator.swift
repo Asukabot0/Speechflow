@@ -1,12 +1,13 @@
+import Combine
 import Dispatch
 import Foundation
 
-public final class AppCoordinator: SpeechflowCoordinating {
-    public private(set) var state: AppState = .idle
+public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
+    @Published public private(set) var state: AppState = .idle
 
-    public private(set) var settings: SpeechflowSettings
+    @Published public private(set) var settings: SpeechflowSettings
     public private(set) var networkQuality: NetworkQuality = .unknown
-    public private(set) var activeInputSource: AudioInputSource?
+    @Published public private(set) var activeInputSource: AudioInputSource?
 
     private let audioService: AudioEngineServicing
     private let asrService: LocalASRServicing
@@ -20,20 +21,14 @@ public final class AppCoordinator: SpeechflowCoordinating {
     private var pendingInputSource: AudioInputSource = .microphone
     private var isAwaitingPermissions = false
     private var shouldStartWhenPermissionsResolve = false
-    private var pendingSilenceCommit: DispatchWorkItem?
-    private var pendingStableCommit: DispatchWorkItem?
     private var pendingTranslationSegments: [TranscriptSegment] = []
     private let maxTranslationAccumulationCharacters = 50
 
     private let minimumStableCommitCharacters = 4
     private let minimumSemanticChunkCharacters = 8
     private let minimumSemanticChunkTokens = 3
-    private let shortFragmentTokenLimit = 1
-    private let shortPhraseExtraCommitDelay: TimeInterval = 0.4
-    private let minimumPunctuatedCommitDelay: TimeInterval = 0.45
-    private let minimumStableCommitDelay: TimeInterval = 0.35
-    private let minimumClauseCommitDelay: TimeInterval = 0.5
-    private let minimumSemanticCommitDelay: TimeInterval = 0.65
+
+    private let autoCommitScheduler = AutoCommitScheduler()
 
     public init(
         audioService: AudioEngineServicing,
@@ -282,79 +277,11 @@ public final class AppCoordinator: SpeechflowCoordinating {
 
         cancelAutoCommitTimers()
 
-        let chunks = splitIntoTranslationChunks(text)
+        let chunks = TextChunkingHelper.splitIntoTranslationChunks(text)
         for chunk in chunks {
             _ = transcriptBuffer.applyPartial(chunk)
             commitCurrentDraft(reason: .finalResult)
         }
-    }
-
-    private func splitIntoTranslationChunks(_ text: String) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return []
-        }
-
-        let terminals: Set<Character> = [".", "!", "?", "。", "！", "？"]
-        var sentences: [String] = []
-        var current = ""
-
-        for char in trimmed {
-            current.append(char)
-            if terminals.contains(char) {
-                let sentence = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !sentence.isEmpty {
-                    sentences.append(sentence)
-                }
-                current = ""
-            }
-        }
-
-        let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !remaining.isEmpty {
-            sentences.append(remaining)
-        }
-
-        // Force-split any sentence over 80 chars at clause boundaries
-        var result: [String] = []
-        for sentence in sentences {
-            if sentence.count > 80 {
-                let subChunks = splitAtClauseBoundaries(sentence, maxChars: 80)
-                result.append(contentsOf: subChunks)
-            } else {
-                result.append(sentence)
-            }
-        }
-
-        return result.isEmpty ? [trimmed] : result
-    }
-
-    private func splitAtClauseBoundaries(_ text: String, maxChars: Int) -> [String] {
-        let clauseBreaks: Set<Character> = [",", ";", ":", "，", "；", "：", "、"]
-        var chunks: [String] = []
-        var current = ""
-
-        for char in text {
-            current.append(char)
-            if current.count >= maxChars, clauseBreaks.contains(char) {
-                let chunk = current.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !chunk.isEmpty {
-                    chunks.append(chunk)
-                }
-                current = ""
-            }
-        }
-
-        let remaining = current.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !remaining.isEmpty {
-            if let lastChunk = chunks.last, lastChunk.count + remaining.count <= maxChars {
-                chunks[chunks.count - 1] = lastChunk + " " + remaining
-            } else {
-                chunks.append(remaining)
-            }
-        }
-
-        return chunks.isEmpty ? [text] : chunks
     }
 
     private func commitCurrentDraft(reason: CommitReason) {
@@ -389,7 +316,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if endsWithTerminalPunctuation(accumulatedText)
+        if TextChunkingHelper.endsWithTerminalPunctuation(accumulatedText)
             || accumulatedText.count >= maxTranslationAccumulationCharacters {
             flushPendingTranslation()
         }
@@ -539,122 +466,25 @@ public final class AppCoordinator: SpeechflowCoordinating {
 
     private func scheduleAutoCommit(for text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            cancelAutoCommitTimers()
-            return
-        }
-
-        pendingStableCommit?.cancel()
-        pendingStableCommit = nil
-
-        if shouldScheduleStableCommit(for: trimmed) {
-            let stableSnapshot = trimmed
-            let stableCommit = DispatchWorkItem { [weak self] in
-                guard let self = self else {
-                    return
-                }
-
-                guard case .listening = self.state else {
-                    return
-                }
-
+        autoCommitScheduler.schedule(
+            for: trimmed,
+            pauseCommitDelay: configuredPauseCommitDelay,
+            onSilenceTimeout: { [weak self] in
+                self?.handle(.silenceTimeoutTriggered)
+            },
+            onStableTimeout: { [weak self] in
+                guard let self = self else { return }
+                guard case .listening = self.state else { return }
                 let currentPartial = self.transcriptBuffer.snapshot.partialText
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard currentPartial == stableSnapshot else {
-                    return
-                }
-
+                guard currentPartial == trimmed else { return }
                 self.handle(.partialStableTimeoutTriggered)
             }
-            pendingStableCommit = stableCommit
-            DispatchQueue.main.asyncAfter(
-                deadline: .now() + stableCommitDelay(for: trimmed),
-                execute: stableCommit
-            )
-        }
-
-        pendingSilenceCommit?.cancel()
-        let silenceCommit = DispatchWorkItem { [weak self] in
-            self?.handle(.silenceTimeoutTriggered)
-        }
-        pendingSilenceCommit = silenceCommit
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + silenceCommitDelay(for: trimmed),
-            execute: silenceCommit
         )
     }
 
-    private func shouldScheduleStableCommit(for text: String) -> Bool {
-        isRealtimeSubtitleCommitCandidate(text)
-    }
-
-    private func silenceCommitDelay(for text: String) -> TimeInterval {
-        if endsWithTerminalPunctuation(text) {
-            return max(minimumPunctuatedCommitDelay, configuredPauseCommitDelay * 0.64)
-        }
-
-        if endsWithClauseBoundaryPunctuation(text) {
-            return max(minimumClauseCommitDelay, configuredPauseCommitDelay * 0.74)
-        }
-
-        let tokenCount = wordTokenCount(in: text)
-        if tokenCount <= shortFragmentTokenLimit && text.count < minimumSemanticChunkCharacters {
-            return configuredPauseCommitDelay + shortPhraseExtraCommitDelay
-        }
-
-        if isSemanticChunkCandidate(text) {
-            return max(minimumSemanticCommitDelay, configuredPauseCommitDelay * 0.82)
-        }
-
-        return configuredPauseCommitDelay + 0.2
-    }
-
-    private func endsWithTerminalPunctuation(_ text: String) -> Bool {
-        guard let lastCharacter = text.last else {
-            return false
-        }
-
-        return Self.terminalPunctuation.contains(lastCharacter)
-    }
-
-    private func endsWithClauseBoundaryPunctuation(_ text: String) -> Bool {
-        guard let lastCharacter = text.last else {
-            return false
-        }
-
-        return Self.clauseBoundaryPunctuation.contains(lastCharacter)
-    }
-
-    private static let terminalPunctuation: Set<Character> = [
-        ".",
-        "!",
-        "?",
-        "。",
-        "！",
-        "？"
-    ]
-
-    private static let clauseBoundaryPunctuation: Set<Character> = [
-        ",",
-        ";",
-        ":",
-        "，",
-        "、",
-        "；",
-        "："
-    ]
-
-    private static let weakTrailingConnectors: Set<String> = [
-        "a", "an", "and", "are", "as", "at", "but", "by", "for", "from",
-        "if", "in", "into", "is", "of", "on", "or", "so", "the", "to",
-        "was", "were", "with", "yet"
-    ]
-
     private func cancelAutoCommitTimers() {
-        pendingStableCommit?.cancel()
-        pendingStableCommit = nil
-        pendingSilenceCommit?.cancel()
-        pendingSilenceCommit = nil
+        autoCommitScheduler.cancelAll()
     }
 
     private func requestPermissionsThenStartIfNeeded(for inputSource: AudioInputSource) {
@@ -681,26 +511,6 @@ public final class AppCoordinator: SpeechflowCoordinating {
         max(0.6, settings.recognitionTuning.pauseCommitDelay)
     }
 
-    private func stableCommitDelay(for text: String) -> TimeInterval {
-        if endsWithTerminalPunctuation(text) {
-            let tunedDelay = configuredPauseCommitDelay * 0.42
-            return max(minimumStableCommitDelay, min(tunedDelay, configuredPauseCommitDelay - 0.18))
-        }
-
-        if endsWithClauseBoundaryPunctuation(text) {
-            let tunedDelay = configuredPauseCommitDelay * 0.5
-            return max(0.42, min(tunedDelay, configuredPauseCommitDelay - 0.12))
-        }
-
-        if isSemanticChunkCandidate(text) {
-            let tunedDelay = configuredPauseCommitDelay * 0.62
-            return max(0.55, min(tunedDelay, configuredPauseCommitDelay + 0.05))
-        }
-
-        let tunedDelay = configuredPauseCommitDelay * 0.72
-        return max(0.7, min(tunedDelay, configuredPauseCommitDelay + 0.18))
-    }
-
     private func logToFile(_ text: String, prefix: String) {
         DispatchQueue.global(qos: .utility).async {
             let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -709,7 +519,7 @@ public final class AppCoordinator: SpeechflowCoordinating {
             formatter.dateFormat = "HH:mm:ss"
             let timestamp = formatter.string(from: Date())
             let logEntry = "[\(timestamp)] \(prefix): \(text)\n"
-            
+
             if let data = logEntry.data(using: .utf8) {
                 if let fileHandle = try? FileHandle(forWritingTo: fileURL) {
                     fileHandle.seekToEndOfFile()
@@ -720,56 +530,6 @@ public final class AppCoordinator: SpeechflowCoordinating {
                 }
             }
         }
-    }
-
-    private func isRealtimeSubtitleCommitCandidate(_ text: String) -> Bool {
-        if endsWithTerminalPunctuation(text) || endsWithClauseBoundaryPunctuation(text) {
-            return true
-        }
-
-        return isSemanticChunkCandidate(text)
-    }
-
-    private func isSemanticChunkCandidate(_ text: String) -> Bool {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            return false
-        }
-
-        guard !endsWithWeakTrailingConnector(trimmed) else {
-            return false
-        }
-
-        let tokenCount = wordTokenCount(in: trimmed)
-        if tokenCount >= minimumSemanticChunkTokens && trimmed.count >= minimumSemanticChunkCharacters {
-            return true
-        }
-
-        if tokenCount <= 1 {
-            return trimmed.count >= minimumSemanticChunkCharacters
-        }
-
-        return false
-    }
-
-    private func endsWithWeakTrailingConnector(_ text: String) -> Bool {
-        guard let lastToken = text
-            .split(whereSeparator: \.isWhitespace)
-            .last?
-            .lowercased()
-            .trimmingCharacters(in: .punctuationCharacters) else {
-            return false
-        }
-
-        guard !lastToken.isEmpty else {
-            return false
-        }
-
-        return Self.weakTrailingConnectors.contains(lastToken)
-    }
-
-    private func wordTokenCount(in text: String) -> Int {
-        text.split(whereSeparator: \.isWhitespace).count
     }
 
     private var canStartSession: Bool {

@@ -1,0 +1,5 @@
+# Speechflow Python ASR dependencies
+# Install: pip install -r requirements.txt
+faster-whisper>=1.1.0
+qwen-asr>=0.3.0
+torch>=2.1.0

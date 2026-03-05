@@ -5,7 +5,7 @@ import Combine
 @MainActor
 final class AppViewModel: ObservableObject {
     private let coordinator: AppCoordinator
-    private var pollTask: Task<Void, Never>?
+    private var cancellables: Set<AnyCancellable> = []
 
     @Published var state: AppState
     @Published var settings: SpeechflowSettings
@@ -17,26 +17,26 @@ final class AppViewModel: ObservableObject {
         self.settings = coordinator.settings
         self.activeInputSource = coordinator.activeInputSource
 
-        // Simple polling mechanism since AppCoordinator is not ObservableObject currently
-        pollTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                guard let self = self else { return }
-                if self.state != self.coordinator.state {
-                    self.state = self.coordinator.state
-                }
-                if self.settings != self.coordinator.settings {
-                    self.settings = self.coordinator.settings
-                }
-                if self.activeInputSource != self.coordinator.activeInputSource {
-                    self.activeInputSource = self.coordinator.activeInputSource
-                }
-                try? await Task.sleep(nanoseconds: 100_000_000)
+        coordinator.$state
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newState in
+                self?.state = newState
             }
-        }
-    }
+            .store(in: &cancellables)
 
-    deinit {
-        pollTask?.cancel()
+        coordinator.$settings
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newSettings in
+                self?.settings = newSettings
+            }
+            .store(in: &cancellables)
+
+        coordinator.$activeInputSource
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] newSource in
+                self?.activeInputSource = newSource
+            }
+            .store(in: &cancellables)
     }
 
     func start() {

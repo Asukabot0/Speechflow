@@ -179,7 +179,7 @@ You can also configure the OpenRouter API key in the settings UI.
 
 ## Logs and Troubleshooting
 
-- Runtime log: `/tmp/speechflow_debug.log`
+- Runtime log: `log stream --predicate 'subsystem=="com.speechflow.core"'`
 - Transcript output: `~/Documents/Speechflow_Transcript.txt`
 - Troubleshooting guide: `Docs/TROUBLESHOOTING.md`
 

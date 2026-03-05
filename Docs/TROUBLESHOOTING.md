@@ -48,14 +48,10 @@
 
 ### 3.1 日志
 
-优先看：
-
-- `/tmp/speechflow_debug.log`
-
-常用命令：
+优先看 os_log 流：
 
 ```bash
-tail -n 200 /tmp/speechflow_debug.log
+log stream --predicate 'subsystem=="com.speechflow.core"'
 ```
 
 ### 3.2 崩溃报告
@@ -151,7 +147,7 @@ ollama pull qwen3.5:2b
 按这个顺序看：
 
 1. 先确认是不是从 `.app` 启动
-2. 看 `/tmp/speechflow_debug.log` 是否已经写到 `WhisperTurboASRService launching faster-whisper runner`
+2. 用 `log stream --predicate 'subsystem=="com.speechflow.core"'` 确认是否已输出 `WhisperTurboASRService launching faster-whisper runner`
 3. 看 `DiagnosticReports` 里有没有新的 `.ips`
 
 ### 5.3 如何判断崩在什么阶段
@@ -177,7 +173,7 @@ ollama pull qwen3.5:2b
 
 如果要继续定位闪退，至少保留：
 
-- 最新 `speechflow_debug.log` 尾部
+- `log stream --predicate 'subsystem=="com.speechflow.core"'` 输出尾部
 - 最新 `.ips` 文件名
 - 是在点了哪一个启动入口后崩的
 
@@ -402,7 +398,7 @@ ollama list
 ```bash
 cd /Users/asukabot/Speechflow
 swift build
-tail -n 200 /tmp/speechflow_debug.log
+log stream --predicate 'subsystem=="com.speechflow.core"'
 ls -1t ~/Library/Logs/DiagnosticReports | head -n 10
 ollama list
 curl -s http://127.0.0.1:11434/api/tags
@@ -417,7 +413,7 @@ curl -s http://127.0.0.1:11434/api/tags
 - 是否通过 `.app` 启动
 - 是否有原文、是否有翻译
 - 当前 backend 是 `Local Ollama` 还是 `System`
-- `/tmp/speechflow_debug.log` 最后 50 到 200 行
+- `log stream --predicate 'subsystem=="com.speechflow.core"'` 最后 50 到 200 行
 - 最新 `.ips` 文件名（如果有闪退）
 - 一小段能稳定复现问题的原始口播内容
 

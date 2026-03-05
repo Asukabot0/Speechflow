@@ -54,6 +54,8 @@ Speechflow/
 │   ├── SpeechflowApp/          # macOS menu bar app and overlays
 │   ├── SpeechflowCore/         # core state machine and services
 │   └── LocalTranslationBench/  # local translation benchmark
+├── Tests/
+│   └── SpeechflowCoreTests/    # Swift Testing unit & integration tests
 ├── Scripts/
 │   ├── build_dev_app_bundle.sh
 │   ├── install_dev_dependencies.sh
@@ -127,7 +129,22 @@ Note: for first-time permission checks, launch `dist/Speechflow.app`. Raw `swift
 - `Enable Translation / Show Overlay`: quick toggles
 - `Preferences...`: settings window (language, ASR tuning, backend preference, OpenRouter key, style)
 
-### 4) Local Translation Benchmark
+### 4) Run Tests
+
+```bash
+swift test
+```
+
+The project includes 51 tests across 6 suites covering core logic (text chunking, transcript buffer, auto-commit scheduling, overlay rendering, translation output normalization) and integration (AppCoordinator state machine). All tests use the Swift Testing framework and run without external dependencies.
+
+To run a specific test suite:
+
+```bash
+swift test --filter TextChunkingHelperTests
+swift test --filter AppCoordinatorTests
+```
+
+### 5) Local Translation Benchmark
 
 ```bash
 ./Scripts/run_local_translation_bench.sh

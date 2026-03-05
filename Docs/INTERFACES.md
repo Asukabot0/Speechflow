@@ -28,6 +28,9 @@ Current targets:
 - `LocalTranslationBench`
   A CLI executable for measuring local Ollama translation latency against the currently selected model.
 
+- `SpeechflowCoreTests`
+  Swift Testing test target containing 51 unit and integration tests across 6 suites. Depends on `SpeechflowCore` only. Uses existing stub implementations for dependency injection.
+
 Notable packaging rule:
 
 - `SpeechflowCore` has no Swift package dependencies. Local ASR and translation rely on system frameworks plus local external runtimes:
@@ -540,7 +543,37 @@ Important runtime caveat:
 
 - First-time permission prompts should be tested through the built `.app`, not raw `swift run`, because `SystemPermissionService` intentionally avoids risky TCC prompts in a non-bundled process.
 
-## 11. Known Incomplete Areas
+## 11. Testing
+
+Framework: Swift Testing (native in Swift 6.2).
+
+Test target: `SpeechflowCoreTests` (51 tests, 6 suites).
+
+Run all tests:
+
+```bash
+swift test
+```
+
+### 11.1 Test Suites
+
+| Suite | Focus | Count |
+|---|---|---|
+| `TextChunkingHelperTests` | Punctuation splitting, clause boundaries, semantic chunk evaluation | 12 |
+| `TranslationOutputNormalizerTests` | LLM prefix removal, code fence stripping, quote cleanup | 9 |
+| `TranscriptBufferTests` | Commit, duplicate suppression, refinement replacement, translation state | 10 |
+| `AutoCommitSchedulerTests` | Delay calculation by text shape, cancellation | 8 |
+| `OverlayViewModelBuilderTests` | Render line generation, wrapping, translation alignment | 7 |
+| `AppCoordinatorTests` | State machine transitions, ASR flow, translation failure resilience | 7 |
+
+### 11.2 Testing Conventions
+
+- All tests use existing `Stub*` implementations from `SpeechflowCore` for dependency injection.
+- `AppCoordinatorTests` use an async `waitForCondition` helper because the coordinator dispatches events on the main queue.
+- Tests do not require external services (no Ollama, no Python, no microphone).
+- New features should include corresponding tests before merging.
+
+## 12. Known Incomplete Areas
 
 These are deliberate gaps, not hidden bugs in the interface design:
 
@@ -549,8 +582,9 @@ These are deliberate gaps, not hidden bugs in the interface design:
 - `TranslationPolicy` naming still reflects an older remote-first design.
 - Subtitle segmentation is functional but still being tuned.
 - `SpeechflowContainer.makeLiveContainer()` still wires `StubOverlayRenderer`; the app target constructs its own real renderer in `SpeechflowApp`.
+- `TranslationRouterService` integration tests are not yet implemented.
 
-## 12. Change Rules for Future Agents
+## 13. Change Rules for Future Agents
 
 When extending the codebase:
 
@@ -561,6 +595,7 @@ When extending the codebase:
 - Keep translation segment-scoped and ordered.
 - Keep ASR independent from translation/network degradation.
 - Keep capture-source switching behind `AudioEngineServicing`, not in views.
+- Add tests for new logic in `SpeechflowCoreTests` using existing stub services.
 
 Do not:
 

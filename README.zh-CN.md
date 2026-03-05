@@ -54,6 +54,8 @@ Speechflow/
 │   ├── SpeechflowApp/          # macOS 菜单栏应用与浮窗
 │   ├── SpeechflowCore/         # 核心状态机与服务实现
 │   └── LocalTranslationBench/  # 本地翻译性能测试
+├── Tests/
+│   └── SpeechflowCoreTests/    # Swift Testing 单元与集成测试
 ├── Scripts/
 │   ├── build_dev_app_bundle.sh
 │   ├── install_dev_dependencies.sh
@@ -126,7 +128,22 @@ open dist/Speechflow.app
 - `Enable Translation / Show Overlay`：快速开关
 - `Preferences...`：打开设置页（语言、识别调优、翻译后端、OpenRouter Key、样式）
 
-### 4) 本地翻译基准测试
+### 4) 运行测试
+
+```bash
+swift test
+```
+
+项目包含 6 个测试套件共 51 个测试用例，覆盖核心逻辑（文本切分、转录缓冲区、自动提交调度、浮窗渲染、翻译输出规范化）和集成（AppCoordinator 状态机）。所有测试基于 Swift Testing 框架，无需外部依赖即可运行。
+
+运行特定测试套件：
+
+```bash
+swift test --filter TextChunkingHelperTests
+swift test --filter AppCoordinatorTests
+```
+
+### 5) 本地翻译基准测试
 
 ```bash
 ./Scripts/run_local_translation_bench.sh

@@ -461,7 +461,7 @@ public final class OpenRouterTranslationService: TranslateServicing, @unchecked 
             return formatAssistantResponse(response)
         }
 
-        let normalized = normalizeModelOutput(text)
+        let normalized = TranslationOutputNormalizer.normalizeModelOutput(text)
         guard !normalized.isEmpty else {
             throw OpenRouterTranslationError.emptyResponse
         }
@@ -641,9 +641,9 @@ public final class OpenRouterTranslationService: TranslateServicing, @unchecked 
     }
 
     private func formatAssistantResponse(_ response: AssistantResponseEnvelope) -> AssistantModelOutput {
-        let suggestedReplyZh = normalizeModelOutput(response.suggestedReplyZh ?? "")
-        let suggestedReplyEn = normalizeModelOutput(response.suggestedReplyEn ?? "")
-        let questionSummary = normalizeModelOutput(response.questionSummary ?? "")
+        let suggestedReplyZh = TranslationOutputNormalizer.normalizeModelOutput(response.suggestedReplyZh ?? "")
+        let suggestedReplyEn = TranslationOutputNormalizer.normalizeModelOutput(response.suggestedReplyEn ?? "")
+        let questionSummary = TranslationOutputNormalizer.normalizeModelOutput(response.questionSummary ?? "")
         let replyType = response.replyType?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased() ?? ""
@@ -723,30 +723,4 @@ public final class OpenRouterTranslationService: TranslateServicing, @unchecked 
         return Array(Set(candidates))
     }
 
-    private func normalizeModelOutput(_ text: String) -> String {
-        var normalized = text
-            .replacingOccurrences(of: "```", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let prefixes = [
-            "translation:",
-            "translated text:",
-            "answer:"
-        ]
-
-        for prefix in prefixes {
-            if normalized.lowercased().hasPrefix(prefix) {
-                normalized = String(normalized.dropFirst(prefix.count))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                break
-            }
-        }
-
-        if normalized.hasPrefix("\""), normalized.hasSuffix("\""), normalized.count >= 2 {
-            normalized.removeFirst()
-            normalized.removeLast()
-        }
-
-        return normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }

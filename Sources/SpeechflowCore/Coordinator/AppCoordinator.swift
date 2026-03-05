@@ -29,6 +29,8 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
     private let minimumSemanticChunkTokens = 3
 
     private let autoCommitScheduler = AutoCommitScheduler()
+    private let eventQueue = DispatchQueue.main
+    private let logQueue = DispatchQueue(label: "Speechflow.AppCoordinator.log", qos: .utility)
 
     public init(
         audioService: AudioEngineServicing,
@@ -63,6 +65,17 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
     }
 
     public func handle(_ event: SpeechflowEvent) {
+        if Thread.isMainThread {
+            processEvent(event)
+        } else {
+            let eventToProcess = event
+            eventQueue.async { [weak self] in
+                self?.processEvent(eventToProcess)
+            }
+        }
+    }
+
+    private func processEvent(_ event: SpeechflowEvent) {
         switch event {
         case .startRequested:
             print("[Coordinator] .startRequested")
@@ -512,7 +525,7 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
     }
 
     private func logToFile(_ text: String, prefix: String) {
-        DispatchQueue.global(qos: .utility).async {
+        logQueue.async {
             let documentsURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
             let fileURL = documentsURL.appendingPathComponent("Speechflow_Transcript.txt")
             let formatter = DateFormatter()

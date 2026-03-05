@@ -1,0 +1,147 @@
+Building for debugging...
+[0/6] Write swift-version--58304C5D6DBC2206.txt
+Build complete! (0.10s)
+Test Suite 'All tests' started at 2026-03-05 14:28:22.558.
+Test Suite 'All tests' passed at 2026-03-05 14:28:22.559.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+↳ Testing Library Version: 1501
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite "OverlayViewModelBuilder Tests" started.
+◇ Suite "TranscriptBuffer Tests" started.
+◇ Suite "TextChunkingHelper Tests" started.
+◇ Suite "TranslationOutputNormalizer Tests" started.
+◇ Suite "AutoCommitScheduler Tests" started.
+◇ Suite "AppCoordinator Tests" started.
+◇ Test "多个有翻译的 segment 之间应该插入空行" started.
+◇ Test "文本超过 maxChars 应该被换行" started.
+◇ Test "翻译行应该使用译文并正确换行" started.
+◇ Test "assistant 问答文本和状态的渲染" started.
+◇ Test "对于空的 snapshot，应当返回空的渲染数据" started.
+◇ Test "混合 partial 和 committed 的情况" started.
+◇ Test "markTranslationFailure 应该标记失败" started.
+◇ Test "初始快照应该为空" started.
+◇ Test "对于只有 partial 的 snapshot，应当生成只有原文字幕且 isCommitted 为 false 的渲染行" started.
+◇ Test "applyTranslationResult 应该写入结果并更新状态" started.
+◇ Test "应该检测句子是否以终止标点结尾" started.
+◇ Test "commitCurrentDraft 应该创建 segment 并清空 partial" started.
+◇ Test "reset 应该清空所有状态" started.
+◇ Test "应该保持单句完整" started.
+◇ Test "markTranslationStarted 应该更新状态" started.
+◇ Test "应该按中文半角全角句末标点切分" started.
+◇ Test "应该正确评估是否为语义块" started.
+◇ Test "应该检测句子是否以子句标点结尾" started.
+◇ Test "应该抑制短时间内的重复提交" started.
+◇ Test "尾部 refinement 替换：包含关系" started.
+◇ Test "应该按句末标点切分" started.
+◇ Test "applyPartial 应该更新 partialText" started.
+◇ Test "应该正确评估实时提词提交候选" started.
+◇ Test "应该按子句边界对过长的句子切分" started.
+◇ Test "应该正确计算英文词数" started.
+◇ Test "cancelAll 应当取消排队的任务" started.
+◇ Test "应该保持空字符串不切分" started.
+◇ Test "应该检测词汇连接词结尾" started.
+◇ Test "空文本不应该被 commit" started.
+◇ Test "对于拥有句末标点的句子，silenceCommit 延迟较短" started.
+◇ Test "对于拥有子句标点的句子，silenceCommit 延迟适中" started.
+◇ Test "调度空字符串应当取消所有未来的提交并立即返回" started.
+◇ Test "对于超短片段，额外增加延迟" started.
+◇ Test "对于达到语义块条件的无标点文本，延迟介于短和长之间" started.
+◇ Test "对于拥有句末标点的句子，stableCommit 延迟最短" started.
+◇ Test "对于一般的不满足上述条件的文本，增加固定容忍延迟" started.
+◇ Test "应该去除代码围栏" started.
+◇ Test "仅空白字符应该返回空" started.
+◇ Test "应该去除外层双引号" started.
+◇ Test "空字符串应该仍然为空" started.
+◇ Test "应该保持普通文本不变" started.
+◇ Test "应该去除 answer: 前缀不区分大小写" started.
+◇ Test "应该去除 translation: 前缀不区分大小写" started.
+◇ Test "应该处理混合前缀和代码围栏" started.
+◇ Test "初始状态应该是 idle" started.
+✔ Test "多个有翻译的 segment 之间应该插入空行" passed after 0.001 seconds.
+✔ Test "混合 partial 和 committed 的情况" passed after 0.001 seconds.
+✔ Test "文本超过 maxChars 应该被换行" passed after 0.001 seconds.
+✔ Test "翻译行应该使用译文并正确换行" passed after 0.001 seconds.
+✔ Test "对于空的 snapshot，应当返回空的渲染数据" passed after 0.001 seconds.
+✔ Test "assistant 问答文本和状态的渲染" passed after 0.001 seconds.
+✔ Test "初始快照应该为空" passed after 0.001 seconds.
+✔ Test "reset 应该清空所有状态" passed after 0.001 seconds.
+✔ Test "markTranslationFailure 应该标记失败" passed after 0.001 seconds.
+✔ Test "markTranslationStarted 应该更新状态" passed after 0.001 seconds.
+✔ Test "应该检测句子是否以子句标点结尾" passed after 0.001 seconds.
+✔ Test "应该检测句子是否以终止标点结尾" passed after 0.001 seconds.
+✔ Test "对于只有 partial 的 snapshot，应当生成只有原文字幕且 isCommitted 为 false 的渲染行" passed after 0.001 seconds.
+✔ Test "commitCurrentDraft 应该创建 segment 并清空 partial" passed after 0.001 seconds.
+✔ Test "应该按中文半角全角句末标点切分" passed after 0.001 seconds.
+✔ Test "应该保持单句完整" passed after 0.001 seconds.
+✔ Test "尾部 refinement 替换：包含关系" passed after 0.001 seconds.
+✔ Test "应该正确评估是否为语义块" passed after 0.001 seconds.
+✔ Test "applyTranslationResult 应该写入结果并更新状态" passed after 0.001 seconds.
+✔ Test "应该按句末标点切分" passed after 0.001 seconds.
+✔ Test "应该正确评估实时提词提交候选" passed after 0.001 seconds.
+✔ Test "applyPartial 应该更新 partialText" passed after 0.001 seconds.
+✔ Test "应该按子句边界对过长的句子切分" passed after 0.001 seconds.
+✔ Test "空文本不应该被 commit" passed after 0.001 seconds.
+✔ Test "对于拥有句末标点的句子，silenceCommit 延迟较短" passed after 0.001 seconds.
+✔ Test "对于拥有句末标点的句子，stableCommit 延迟最短" passed after 0.001 seconds.
+✔ Test "应该正确计算英文词数" passed after 0.001 seconds.
+✔ Test "对于超短片段，额外增加延迟" passed after 0.001 seconds.
+✔ Test "应该检测词汇连接词结尾" passed after 0.001 seconds.
+✔ Test "对于达到语义块条件的无标点文本，延迟介于短和长之间" passed after 0.001 seconds.
+✔ Test "对于一般的不满足上述条件的文本，增加固定容忍延迟" passed after 0.001 seconds.
+✔ Test "仅空白字符应该返回空" passed after 0.001 seconds.
+✔ Test "应该保持空字符串不切分" passed after 0.001 seconds.
+✔ Test "对于拥有子句标点的句子，silenceCommit 延迟适中" passed after 0.001 seconds.
+✔ Test "应该去除代码围栏" passed after 0.001 seconds.
+✔ Test "空字符串应该仍然为空" passed after 0.001 seconds.
+✔ Test "应该保持普通文本不变" passed after 0.001 seconds.
+✔ Test "应该去除 answer: 前缀不区分大小写" passed after 0.001 seconds.
+✔ Test "应该处理混合前缀和代码围栏" passed after 0.001 seconds.
+✔ Test "应该去除 translation: 前缀不区分大小写" passed after 0.001 seconds.
+✔ Test "应该去除外层双引号" passed after 0.001 seconds.
+✔ Suite "OverlayViewModelBuilder Tests" passed after 0.002 seconds.
+✔ Suite "TextChunkingHelper Tests" passed after 0.002 seconds.
+✔ Suite "TranslationOutputNormalizer Tests" passed after 0.002 seconds.
+✔ Test "初始状态应该是 idle" passed after 0.002 seconds.
+◇ Test "startRequested 应该经过权限检查后进入 listening 状态" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+✘ Test "应该抑制短时间内的重复提交" recorded an issue at TranscriptBufferTests.swift:71:9: Expectation failed: (mutation2 → TranscriptBufferMutation(snapshot: SpeechflowCore.TranscriptSnapshot(partialText: "", committedSegments: [SpeechflowCore.TranscriptSegment(id: 46C88BA2-038B-4633-9A9A-16A2B905EC04, sourceText: "duplicate", normalizedSourceText: "duplicate", translatedText: nil, assistantText: nil, assistantQuestionSummary: nil, assistantStatus: SpeechflowCore.AssistantResponseStatus.idle, status: SpeechflowCore.SegmentStatus.committed, createdAt: 2026-03-05 05:28:22 +0000, committedAt: Optional(2026-03-05 05:28:22 +0000), translatedAt: nil, sourceLanguage: "en", targetLanguage: "zh")]), committedSegment: nil, commitReason: Optional(SpeechflowCore.CommitReason.finalResult))) == nil
+✘ Test "应该抑制短时间内的重复提交" recorded an issue at TranscriptBufferTests.swift:75:9: Expectation failed: (mutation3 → nil) != nil
+✘ Test "应该抑制短时间内的重复提交" failed after 0.004 seconds with 2 issues.
+✘ Suite "TranscriptBuffer Tests" failed after 0.005 seconds with 2 issues.
+✔ Test "startRequested 应该经过权限检查后进入 listening 状态" passed after 0.011 seconds.
+◇ Test "pauseRequested 应该进入 paused 状态并停止捕获" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+✔ Test "pauseRequested 应该进入 paused 状态并停止捕获" passed after 0.025 seconds.
+◇ Test "resumeRequested 应该从 paused 恢复到 listening" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+✔ Test "resumeRequested 应该从 paused 恢复到 listening" passed after 0.037 seconds.
+◇ Test "stopRequested 应该切回 idle 状态全量清理" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+✔ Test "stopRequested 应该切回 idle 状态全量清理" passed after 0.025 seconds.
+◇ Test "partial/final 应该驱动 TranscriptBuffer 并触发渲染" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+[Coordinator] .asrPartialReceived: "hello"
+[Coordinator] .asrFinalReceived: "hello world"
+✔ Test "partial/final 应该驱动 TranscriptBuffer 并触发渲染" passed after 0.036 seconds.
+◇ Test "翻译失败时不应该导致应用崩溃，只显示错误事件" started.
+[Coordinator] .startRequested
+[Coordinator] .permissionsResolved mic=true speech=true ready=true
+[Coordinator] startSession() — now listening
+[Coordinator] .translationFailed id=48B02A69-89CD-411C-8AA6-C4D014621B2D msg=Ollama Error
+✔ Test "调度空字符串应当取消所有未来的提交并立即返回" passed after 0.201 seconds.
+✔ Test "cancelAll 应当取消排队的任务" passed after 0.206 seconds.
+✔ Suite "AutoCommitScheduler Tests" passed after 0.206 seconds.
+✔ Test "翻译失败时不应该导致应用崩溃，只显示错误事件" passed after 0.067 seconds.
+✔ Suite "AppCoordinator Tests" passed after 0.207 seconds.
+✘ Test run with 51 tests in 6 suites failed after 0.207 seconds with 2 issues.

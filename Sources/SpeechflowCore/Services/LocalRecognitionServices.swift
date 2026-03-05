@@ -230,56 +230,7 @@ public final class SystemAudioEngineService: AudioEngineServicing {
             return
         }
 
-        let audioBuffers = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
-
-        switch buffer.format.commonFormat {
-        case .pcmFormatFloat32:
-            for audioBuffer in audioBuffers {
-                guard let data = audioBuffer.mData else {
-                    continue
-                }
-
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Float>.size
-                let samples = data.bindMemory(to: Float.self, capacity: sampleCount)
-
-                for index in 0..<sampleCount {
-                    let amplified = samples[index] * appliedGain
-                    samples[index] = min(1.0, max(-1.0, amplified))
-                }
-            }
-        case .pcmFormatInt16:
-            for audioBuffer in audioBuffers {
-                guard let data = audioBuffer.mData else {
-                    continue
-                }
-
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int16>.size
-                let samples = data.bindMemory(to: Int16.self, capacity: sampleCount)
-
-                for index in 0..<sampleCount {
-                    let amplified = Float(samples[index]) * appliedGain
-                    let clamped = min(Float(Int16.max), max(Float(Int16.min), amplified))
-                    samples[index] = Int16(clamped)
-                }
-            }
-        case .pcmFormatInt32:
-            for audioBuffer in audioBuffers {
-                guard let data = audioBuffer.mData else {
-                    continue
-                }
-
-                let sampleCount = Int(audioBuffer.mDataByteSize) / MemoryLayout<Int32>.size
-                let samples = data.bindMemory(to: Int32.self, capacity: sampleCount)
-
-                for index in 0..<sampleCount {
-                    let amplified = Double(samples[index]) * Double(appliedGain)
-                    let clamped = min(Double(Int32.max), max(Double(Int32.min), amplified))
-                    samples[index] = Int32(clamped)
-                }
-            }
-        default:
-            return
-        }
+        AudioBufferProcessing.applyGain(to: buffer, boostFactor: appliedGain)
     }
 
     private func applyNoiseGateIfNeeded(to buffer: AVAudioPCMBuffer) {

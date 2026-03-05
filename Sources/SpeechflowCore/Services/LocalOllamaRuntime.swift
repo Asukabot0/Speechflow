@@ -157,7 +157,8 @@ public actor LocalOllamaRuntime: LocalModelRunning {
             throw LocalModelRuntimeError.invalidResponse
         }
 
-        let normalized = decoded.response.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawResponse = decoded.response
+        let normalized = TranslationOutputNormalizer.normalizeModelOutput(rawResponse)
         guard !normalized.isEmpty else {
             throw LocalModelRuntimeError.emptyResponse
         }

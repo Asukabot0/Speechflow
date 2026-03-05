@@ -38,7 +38,7 @@ public struct PermissionSet: Equatable, Sendable {
     }
 }
 
-public enum SpeechflowEvent {
+public enum SpeechflowEvent: Sendable {
     case startRequested
     case startMicrophoneRequested
     case startSystemAudioRequested

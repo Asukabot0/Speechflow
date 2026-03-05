@@ -35,6 +35,17 @@ open dist/Speechflow.app
 - 脚本会创建 `.venv` 并安装 `qwen-asr`、`faster-whisper`
 - 脚本会启动 Ollama 并默认拉取 `qwen3.5:0.8b`
 
+如果需要手动安装 `qwen-asr`（不跑脚本），执行：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade qwen-asr faster-whisper
+python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
+export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
+```
+
 ## 4. 可选安装参数
 
 - 跳过 Python 依赖安装：
@@ -94,6 +105,7 @@ python3 --version
 ollama --version
 curl -fsS http://127.0.0.1:11434/api/tags
 ollama list
+python -c "import qwen_asr, faster_whisper; print('python deps ok')"
 swift build
 ./Scripts/run_local_translation_bench.sh
 test -d dist/Speechflow.app && echo "app bundle ok"

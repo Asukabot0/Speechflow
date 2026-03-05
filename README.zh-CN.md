@@ -90,6 +90,19 @@ Speechflow/
 - 指定拉取多个模型：
   `SPEECHFLOW_BOOTSTRAP_OLLAMA_MODELS="qwen3.5:0.8b,qwen3.5:2b" ./Scripts/install_dev_dependencies.sh`
 
+### 0.1) 手动安装 qwen-ASR（不使用脚本）
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade qwen-asr faster-whisper
+python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
+export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="$(pwd)/.venv/bin/python"
+```
+
+如果你不用 `.venv`，也可以装到现有 Python 环境；但需要确保 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 指向安装了 `qwen-asr` 的 Python 可执行文件。
+
 ### 1) 构建
 
 ```bash

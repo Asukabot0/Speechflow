@@ -91,6 +91,19 @@ Optional flags:
 - Pull multiple models:
   `SPEECHFLOW_BOOTSTRAP_OLLAMA_MODELS="qwen3.5:0.8b,qwen3.5:2b" ./Scripts/install_dev_dependencies.sh`
 
+### 0.1) Manual qwen-ASR Install (without bootstrap script)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade qwen-asr faster-whisper
+python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
+export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="$(pwd)/.venv/bin/python"
+```
+
+If you do not use `.venv`, install into your existing Python environment and make sure `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` points to the Python executable where `qwen-asr` is installed.
+
 ### 1) Build
 
 ```bash

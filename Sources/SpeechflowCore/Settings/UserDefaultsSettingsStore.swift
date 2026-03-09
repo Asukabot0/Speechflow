@@ -19,7 +19,19 @@ public final class UserDefaultsSettingsStore: SettingsStoring {
             return .defaultValue
         }
 
-        return (try? decoder.decode(SpeechflowSettings.self, from: data)) ?? .defaultValue
+        guard var settings = try? decoder.decode(SpeechflowSettings.self, from: data) else {
+            return .defaultValue
+        }
+
+        let normalizedSourceCode = LocaleIdentifierNormalizer.normalizedInputLocaleIdentifier(
+            settings.languagePair.sourceCode
+        )
+        if normalizedSourceCode != settings.languagePair.sourceCode {
+            settings.languagePair.sourceCode = normalizedSourceCode
+            save(settings)
+        }
+
+        return settings
     }
 
     public func save(_ settings: SpeechflowSettings) {

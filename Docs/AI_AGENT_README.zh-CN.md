@@ -23,7 +23,7 @@
 ```bash
 cd /Users/asukabot/Speechflow
 ./Scripts/install_dev_dependencies.sh
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
+export SPEECHFLOW_ASR_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
 swift build
 ./Scripts/build_dev_app_bundle.sh
 open dist/Speechflow.app
@@ -32,19 +32,22 @@ open dist/Speechflow.app
 说明：
 
 - `install_dev_dependencies.sh` 会安装 `python`、`ollama`、`ffmpeg`
-- 脚本会创建 `.venv` 并安装 `qwen-asr`、`faster-whisper`
+- 脚本会创建 `.venv` 并安装 `mlx-audio==0.3.1`
 - 脚本会启动 Ollama 并默认拉取 `qwen3.5:0.8b`
+- 主 ASR 会通过 MLX 在 Apple Silicon 上运行 `mlx-community/Qwen3-ASR-1.7B-4bit`；若 MLX / Metal 不可用或模型启动失败，Speechflow 会回退到 `SpeechFrameworkASRService`
 
-如果需要手动安装 `qwen-asr`（不跑脚本），执行：
+如果需要手动安装 MLX ASR 运行时（不跑脚本），执行：
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install --upgrade qwen-asr faster-whisper
-python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
+python -m pip install --upgrade "mlx-audio==0.3.1"
+python -c "import mlx_audio, mlx.core as mx; print('mlx-audio ok, metal=', mx.metal.is_available())"
+export SPEECHFLOW_ASR_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
 ```
+
+旧别名 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 仍兼容，但不再是首选。
 
 ## 4. 可选安装参数
 
@@ -105,7 +108,7 @@ python3 --version
 ollama --version
 curl -fsS http://127.0.0.1:11434/api/tags
 ollama list
-python -c "import qwen_asr, faster_whisper; print('python deps ok')"
+python -c "import mlx_audio, mlx.core as mx; print('python deps ok, metal=', mx.metal.is_available())"
 swift build
 ./Scripts/run_local_translation_bench.sh
 test -d dist/Speechflow.app && echo "app bundle ok"
@@ -129,7 +132,10 @@ test -d dist/Speechflow.app && echo "app bundle ok"
   处理：执行 `ollama serve`，再检查 `curl http://127.0.0.1:11434/api/tags`
 
 - 症状：ASR 报 Python 路径错误  
-  处理：导出 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 指向 `.venv/bin/python`
+  处理：导出 `SPEECHFLOW_ASR_PYTHON_PATH` 指向 `.venv/bin/python`（旧别名 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 仍然兼容）
+
+- 症状：MLX runner 启动失败并提示 Metal / Apple Silicon 不可用  
+  处理：确认当前机器是 Apple Silicon，且 `python -c "import mlx.core as mx; print(mx.metal.is_available())"` 返回 `True`；否则预期会自动回退到系统语音识别
 
 ## 8. 关键入口文件
 

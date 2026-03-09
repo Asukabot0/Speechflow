@@ -122,4 +122,56 @@ struct TextChunkingHelperTests {
         #expect(TextChunkingHelper.wordTokenCount(in: "one") == 1)
         #expect(TextChunkingHelper.wordTokenCount(in: "") == 0)
     }
+
+    // MARK: - splitCompletedPrefix
+
+    @Test("splitCompletedPrefix: 空字符串")
+    func testSplitCompletedPrefixEmpty() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("")
+        #expect(completed == "")
+        #expect(remainder == "")
+    }
+
+    @Test("splitCompletedPrefix: 无终止标点")
+    func testSplitCompletedPrefixNoPunctuation() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("hello world how are you")
+        #expect(completed == "")
+        #expect(remainder == "hello world how are you")
+    }
+
+    @Test("splitCompletedPrefix: 以终止标点结尾，无后续内容")
+    func testSplitCompletedPrefixEndsWithPunctuation() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("Hello world.")
+        #expect(completed == "")
+        #expect(remainder == "Hello world.")
+    }
+
+    @Test("splitCompletedPrefix: 终止标点后有后续文字")
+    func testSplitCompletedPrefixWithTrailing() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("Hello world. How are you")
+        #expect(completed == "Hello world.")
+        #expect(remainder == "How are you")
+    }
+
+    @Test("splitCompletedPrefix: 多个句子，最后一句未完成")
+    func testSplitCompletedPrefixMultipleSentences() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("First. Second! Third")
+        #expect(completed == "First. Second!")
+        #expect(remainder == "Third")
+    }
+
+    @Test("splitCompletedPrefix: 中文句末标点")
+    func testSplitCompletedPrefixChinese() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("你好。世界你好")
+        #expect(completed == "你好。")
+        #expect(remainder == "世界你好")
+    }
+
+    @Test("splitCompletedPrefix: 所有句子都以标点结尾")
+    func testSplitCompletedPrefixAllComplete() {
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix("Hello. World.")
+        // "Hello." has trailing "World." so it becomes the split point
+        #expect(completed == "Hello.")
+        #expect(remainder == "World.")
+    }
 }

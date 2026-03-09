@@ -42,6 +42,7 @@ public final class StubAudioEngineService: AudioEngineServicing {
 public final class StubASRService: LocalASRServicing {
     private var eventSink: ((SpeechflowEvent) -> Void)?
     public private(set) var localeIdentifier: String
+    public private(set) var isStreaming = false
 
     public init(localeIdentifier: String = Locale.current.identifier) {
         self.localeIdentifier = localeIdentifier
@@ -53,10 +54,12 @@ public final class StubASRService: LocalASRServicing {
 
     public func startStreaming(eventSink: @escaping (SpeechflowEvent) -> Void) throws {
         self.eventSink = eventSink
+        isStreaming = true
     }
 
     public func stopStreaming() {
         eventSink = nil
+        isStreaming = false
     }
 
     public func injectPartial(_ text: String) {
@@ -114,11 +117,23 @@ public final class StubPermissionService: PermissionServicing {
 }
 
 public final class StubTranslateService: TranslateServicing {
+    public enum Mode {
+        case immediate
+        case manual
+    }
+
     private var eventSink: ((SpeechflowEvent) -> Void)?
     private var policy: TranslationPolicy = .defaultValue
     private var networkQuality: NetworkQuality = .unknown
+    private let mode: Mode
 
-    public init() {}
+    public private(set) var enqueuedSegments: [TranscriptSegment] = []
+    public private(set) var pendingSegments: [TranscriptSegment] = []
+    public private(set) var cancelAllCallCount = 0
+
+    public init(mode: Mode = .immediate) {
+        self.mode = mode
+    }
 
     public func start(eventSink: @escaping (SpeechflowEvent) -> Void) {
         self.eventSink = eventSink
@@ -135,16 +150,42 @@ public final class StubTranslateService: TranslateServicing {
     }
 
     public func enqueue(_ segment: TranscriptSegment) {
-        let result = makeResult(for: segment)
-        switch result {
-        case .success(let translationResult):
-            eventSink?(.translationFinished(translationResult))
-        case .failure(let error):
-            eventSink?(.translationFailed(segmentID: segment.id, message: error.localizedDescription))
+        enqueuedSegments.append(segment)
+
+        switch mode {
+        case .immediate:
+            emitResult(for: segment)
+        case .manual:
+            pendingSegments.append(segment)
         }
     }
 
-    public func cancelAll() {}
+    public func cancelAll() {
+        cancelAllCallCount += 1
+        pendingSegments.removeAll()
+    }
+
+    @discardableResult
+    public func completeNext() -> Bool {
+        guard !pendingSegments.isEmpty else {
+            return false
+        }
+
+        let segment = pendingSegments.removeFirst()
+        emitResult(for: segment)
+        return true
+    }
+
+    @discardableResult
+    public func failNext(message: String) -> Bool {
+        guard !pendingSegments.isEmpty else {
+            return false
+        }
+
+        let segment = pendingSegments.removeFirst()
+        eventSink?(.translationFailed(segmentID: segment.id, message: message))
+        return true
+    }
 
     struct StubError: LocalizedError {
         let message: String
@@ -215,6 +256,16 @@ public final class StubTranslateService: TranslateServicing {
 
                 return .failure(StubError(message: "No translation fallback route is available."))
             }
+        }
+    }
+
+    private func emitResult(for segment: TranscriptSegment) {
+        let result = makeResult(for: segment)
+        switch result {
+        case .success(let translationResult):
+            eventSink?(.translationFinished(translationResult))
+        case .failure(let error):
+            eventSink?(.translationFailed(segmentID: segment.id, message: error.localizedDescription))
         }
     }
 }

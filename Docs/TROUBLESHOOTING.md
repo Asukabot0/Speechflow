@@ -12,7 +12,7 @@
 
 当前手册默认你面对的是这套实际链路：
 
-- ASR 主链路：`faster-whisper`
+- ASR 主链路：`mlx-community/Qwen3-ASR-1.7B-4bit`（`mlx-audio` + MLX / Apple Silicon）
 - ASR fallback：`SpeechFramework`
 - 翻译默认：本地 `Ollama`
 - 默认模型：`qwen3.5:2b`
@@ -147,7 +147,7 @@ ollama pull qwen3.5:2b
 按这个顺序看：
 
 1. 先确认是不是从 `.app` 启动
-2. 用 `log stream --predicate 'subsystem=="com.speechflow.core"'` 确认是否已输出 `WhisperTurboASRService launching faster-whisper runner`
+2. 用 `log stream --predicate 'subsystem=="com.speechflow.core"'` 确认是否已输出 `WhisperTurboASRService launching ASR runner`
 3. 看 `DiagnosticReports` 里有没有新的 `.ips`
 
 ### 5.3 如何判断崩在什么阶段
@@ -157,7 +157,7 @@ ollama pull qwen3.5:2b
 - 只有 `PreferredLocalASRService starting primary ASR backend`
   - 说明刚进入主识别启动阶段
 
-- 到了 `WhisperTurboASRService validated faster-whisper runtime`
+- 到了 `WhisperTurboASRService validated ASR runtime`
   - 说明 Python 路径、runner 路径和模型配置至少通过了前置校验
 
 - 到了 `WhisperTurboASRService received first audio buffer`
@@ -166,7 +166,7 @@ ollama pull qwen3.5:2b
 - 到了 `WhisperTurboASRService scheduling transcription`
   - 说明已经在送第一轮转写
 
-- 到了 `WhisperTurboASRService launching faster-whisper runner`
+- 到了 `WhisperTurboASRService launching ASR runner`
   - 说明崩点很可能在 runner 或其后的回调链
 
 ### 5.4 需要保留的材料
@@ -199,12 +199,12 @@ ollama pull qwen3.5:2b
 这几行是最关键的分界点：
 
 - `PreferredLocalASRService starting primary ASR backend`
-- `WhisperTurboASRService validated faster-whisper runtime`
+- `WhisperTurboASRService validated ASR runtime`
 - `WhisperTurboASRService received first audio buffer`
 - `WhisperTurboASRService accepted first resampled audio chunk`
 - `WhisperTurboASRService scheduling transcription`
-- `WhisperTurboASRService launching faster-whisper runner`
-- `WhisperTurboASRService faster-whisper runner ready`
+- `WhisperTurboASRService launching ASR runner`
+- `WhisperTurboASRService ASR runner ready`
 
 ### 6.3 各阶段对应的问题
 
@@ -222,13 +222,15 @@ ollama pull qwen3.5:2b
 
 - 问题更偏向窗口阈值太高，或有效音频不够
 
-如果有 `scheduling transcription`，但没有 `faster-whisper runner ready`：
+如果有 `scheduling transcription`，但没有 `ASR runner ready`：
 
-- 问题更偏向 Python runner 或 `faster-whisper` 本身
+- 问题更偏向 Python runner、MLX 模型启动或 Metal 本身
 
-### 6.4 `faster-whisper` 主链路失败但 app 没崩
+### 6.4 MLX 主链路失败但 app 没崩
 
 当前设计里，主链路失败后会尝试回退到 `SpeechFrameworkASRService`。
+
+如果错误文本提到 `MLX`、`Metal`、`mlx_audio` 或模型启动失败，优先按“主链路不可用，正在回退系统 ASR”来判断，而不是继续按不存在的 CPU 降级路径排查。
 
 如果你看到：
 
@@ -303,10 +305,10 @@ curl -s http://127.0.0.1:11434/api/tags
 
 现在的策略是：
 
-1. 优先用 `faster-whisper` 原生返回的 `segments`
-2. 如果有多段，只先提交最前面的一段
-3. 剩余部分继续作为滚动 `partial`
-4. 如果模型只给一大段，再做启发式切分
+1. 优先用 Python runner 返回的段结果
+2. 当前 Qwen runner 通常返回单段滚动全文，因此更多依赖 Swift 侧的启发式切分
+3. 如果后续 runner 返回多段，只先提交最前面的一段
+4. 剩余部分继续作为滚动 `partial`
 
 ### 8.3 为什么仍然会出现长句
 
@@ -320,11 +322,11 @@ curl -s http://127.0.0.1:11434/api/tags
 
 先调这几项，而不是先改 prompt：
 
-- `SPEECHFLOW_WHISPER_POLL_SECONDS`
-- `SPEECHFLOW_WHISPER_MIN_START_SECONDS`
-- `SPEECHFLOW_WHISPER_MIN_INCREMENT_SECONDS`
-- `SPEECHFLOW_WHISPER_MAX_WINDOW_SECONDS`
-- `SPEECHFLOW_FASTER_WHISPER_VAD_MIN_SILENCE_MS`
+- `SPEECHFLOW_ASR_POLL_SECONDS`
+- `SPEECHFLOW_ASR_MIN_START_SECONDS`
+- `SPEECHFLOW_ASR_MIN_INCREMENT_SECONDS`
+- `SPEECHFLOW_ASR_MAX_WINDOW_SECONDS`
+- `SPEECHFLOW_ASR_MAX_NEW_TOKENS`
 
 总体原则：
 

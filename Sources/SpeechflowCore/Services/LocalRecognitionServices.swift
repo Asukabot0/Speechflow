@@ -304,17 +304,20 @@ public final class SpeechFrameworkASRService: LocalASRServicing {
         prefersOnDeviceRecognition: Bool = true
     ) {
         self.audioService = audioService
-        self.localeIdentifier = localeIdentifier
+        self.localeIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
         self.taskHint = taskHint
         self.prefersOnDeviceRecognition = prefersOnDeviceRecognition
     }
 
     public func updateLocaleIdentifier(_ localeIdentifier: String) {
-        guard self.localeIdentifier != localeIdentifier else {
+        let normalizedLocaleIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
+        guard self.localeIdentifier != normalizedLocaleIdentifier else {
             return
         }
 
-        self.localeIdentifier = localeIdentifier
+        self.localeIdentifier = normalizedLocaleIdentifier
         if recognitionTask == nil {
             speechRecognizer = nil
         }
@@ -388,7 +391,9 @@ public final class SpeechFrameworkASRService: LocalASRServicing {
             return existingRecognizer
         }
 
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeIdentifier)) else {
+        let normalizedLocaleIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
+        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: normalizedLocaleIdentifier)) else {
             throw LocalRecognitionError.missingSpeechRecognizer(localeIdentifier: localeIdentifier)
         }
 

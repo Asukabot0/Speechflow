@@ -108,6 +108,55 @@ struct OverlayViewModelBuilderTests {
         #expect(model.translatedLines[2].text == "世界")
     }
 
+    @Test("渲染相同 snapshot 两次应该产生稳定的行 ID")
+    func testStableLineIDs() {
+        let segment = TranscriptSegment(
+            sourceText: "hello world",
+            normalizedSourceText: "hello world",
+            status: .committed,
+            sourceLanguage: "en-US",
+            targetLanguage: "zh-Hans"
+        )
+        let snapshot = TranscriptSnapshot(partialText: "partial", committedSegments: [segment])
+        let model1 = OverlayViewModelBuilder.makeRenderModel(from: snapshot, maxLines: 5)
+        let model2 = OverlayViewModelBuilder.makeRenderModel(from: snapshot, maxLines: 5)
+
+        #expect(model1.originalLines.count == model2.originalLines.count)
+        for i in 0..<model1.originalLines.count {
+            #expect(model1.originalLines[i].id == model2.originalLines[i].id)
+            #expect(model1.originalLines[i].text == model2.originalLines[i].text)
+        }
+    }
+
+    @Test("新增 segment 不应改变已有行的 ID")
+    func testStableIDsOnAppend() {
+        let segment1 = TranscriptSegment(
+            sourceText: "first sentence.",
+            normalizedSourceText: "first sentence.",
+            status: .committed,
+            sourceLanguage: "en-US",
+            targetLanguage: "zh-Hans"
+        )
+        let snapshot1 = TranscriptSnapshot(partialText: "", committedSegments: [segment1])
+        let model1 = OverlayViewModelBuilder.makeRenderModel(from: snapshot1, maxLines: 5)
+
+        let segment2 = TranscriptSegment(
+            sourceText: "second sentence.",
+            normalizedSourceText: "second sentence.",
+            status: .committed,
+            sourceLanguage: "en-US",
+            targetLanguage: "zh-Hans"
+        )
+        let snapshot2 = TranscriptSnapshot(partialText: "", committedSegments: [segment1, segment2])
+        let model2 = OverlayViewModelBuilder.makeRenderModel(from: snapshot2, maxLines: 5)
+
+        // The first segment's line should have the same ID in both renders
+        #expect(model1.originalLines[0].id == model2.originalLines[0].id)
+        // The second segment's line should be different
+        #expect(model2.originalLines.count == 2)
+        #expect(model2.originalLines[0].id != model2.originalLines[1].id)
+    }
+
     @Test("assistant 问答文本和状态的渲染")
     func testAssistantLinesAndStatus() {
         let segment = TranscriptSegment(
@@ -132,5 +181,46 @@ struct OverlayViewModelBuilderTests {
         #expect(lines[0].text == "Q1")
         #expect(lines[1].text.hasPrefix("__assistant_summary__:问题摘要"))
         #expect(lines[2].text == "这里是 assistant 的回答")
+    }
+
+    @Test("maxVisibleLines 应裁剪 original pane 到最新 N 行")
+    func testOriginalLinesAreCapped() {
+        let segments = (1...4).map { index in
+            TranscriptSegment(
+                sourceText: "line \(index).",
+                normalizedSourceText: "line \(index).",
+                status: .committed,
+                sourceLanguage: "en-US",
+                targetLanguage: "zh-Hans"
+            )
+        }
+        let snapshot = TranscriptSnapshot(partialText: "", committedSegments: segments)
+
+        let model = OverlayViewModelBuilder.makeRenderModel(from: snapshot, maxLines: 2)
+
+        #expect(model.originalLines.map(\.text) == ["line 3.", "line 4."])
+    }
+
+    @Test("maxVisibleLines 应裁剪 translated 和 assistant pane")
+    func testTranslatedAndAssistantLinesAreCapped() {
+        let segments = (1...3).map { index in
+            TranscriptSegment(
+                sourceText: "source \(index)",
+                normalizedSourceText: "source \(index)",
+                translatedText: "translated \(index)",
+                assistantText: "assistant \(index)",
+                assistantQuestionSummary: "summary \(index)",
+                assistantStatus: .answered,
+                status: .translated,
+                sourceLanguage: "en-US",
+                targetLanguage: "zh-Hans"
+            )
+        }
+        let snapshot = TranscriptSnapshot(partialText: "", committedSegments: segments)
+
+        let model = OverlayViewModelBuilder.makeRenderModel(from: snapshot, maxLines: 2)
+
+        #expect(model.translatedLines.map(\.text) == [" ", "translated 3"])
+        #expect(model.assistantLines.map(\.text) == ["__assistant_summary__:summary 3", "assistant 3"])
     }
 }

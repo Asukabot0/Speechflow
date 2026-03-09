@@ -41,6 +41,7 @@ internal final class PCMResampler: @unchecked Sendable {
         }
 
         guard let converter else {
+            debugLog("PCMResampler failed to create AVAudioConverter from \(buffer.format) to \(targetFormat)")
             return nil
         }
 
@@ -55,6 +56,7 @@ internal final class PCMResampler: @unchecked Sendable {
             pcmFormat: targetFormat,
             frameCapacity: estimatedFrames + 32
         ) else {
+            debugLog("PCMResampler failed to allocate outputBuffer for \(estimatedFrames) frames")
             return nil
         }
 
@@ -72,17 +74,23 @@ internal final class PCMResampler: @unchecked Sendable {
         }
 
         if let conversionError {
-            _ = conversionError
+            debugLog("PCMResampler conversionError: \(conversionError.localizedDescription)")
             return nil
         }
 
-        guard (status == .haveData || status == .inputRanDry || status == .endOfStream),
-              let channelData = outputBuffer.floatChannelData else {
+        guard (status == .haveData || status == .inputRanDry || status == .endOfStream) else {
+            debugLog("PCMResampler unexpected status: \(status.rawValue)")
+            return nil
+        }
+        
+        guard let channelData = outputBuffer.floatChannelData else {
+            debugLog("PCMResampler missing channel data")
             return nil
         }
 
         let frameLength = Int(outputBuffer.frameLength)
         guard frameLength > 0 else {
+            debugLog("PCMResampler converted output has 0 frameLength (input frameLength was \(buffer.frameLength), status=\(status.rawValue), error=\(String(describing: conversionError)))")
             return nil
         }
 

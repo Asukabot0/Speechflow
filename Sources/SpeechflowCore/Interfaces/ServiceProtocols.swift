@@ -34,6 +34,8 @@ public protocol TranscriptBuffering: AnyObject {
     func updateLanguagePair(_ pair: LanguagePair)
     func applyPartial(_ text: String) -> TranscriptBufferMutation
     func commitCurrentDraft(reason: CommitReason, now: Date) -> TranscriptBufferMutation?
+    func confirmSegments(ids: [UUID]) -> TranscriptSnapshot
+    func removeSegments(ids: [UUID]) -> TranscriptSnapshot
     func markTranslationStarted(for segmentID: UUID) -> TranscriptSnapshot
     func applyTranslationResult(_ result: TranslationResult, at: Date) -> TranscriptSnapshot
     func markTranslationFailure(for segmentID: UUID, message: String) -> TranscriptSnapshot

@@ -36,7 +36,7 @@ let package = Package(
             dependencies: [],
             path: "Sources/SpeechflowCore",
             resources: [
-                .copy("Resources/faster_whisper_runner.py"),
+                .copy("Resources/qwen_asr_runner.py"),
                 .process("Resources/Prompts")
             ]
         ),

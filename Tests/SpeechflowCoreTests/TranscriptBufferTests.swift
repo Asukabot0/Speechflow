@@ -143,6 +143,78 @@ struct TranscriptBufferTests {
         #expect(snapshot.committedSegments.first?.sourceText == "hello world")
     }
 
+    @Test("partialStabilized commit 应写入 provisional 标记")
+    func testPartialCommitIsProvisional() {
+        let buffer = TranscriptBuffer(languagePair: LanguagePair(sourceCode: "en", targetCode: "zh"))
+        _ = buffer.applyPartial("stable partial")
+
+        let mutation = buffer.commitCurrentDraft(reason: .partialStabilized, now: Date())
+
+        #expect(mutation?.committedSegment?.isProvisional == true)
+        #expect(buffer.snapshot.committedSegments.first?.isProvisional == true)
+    }
+
+    @Test("confirmSegments 应仅确认 provisional 段并保留已有译文")
+    func testConfirmSegmentsPreservesTranslation() {
+        let buffer = TranscriptBuffer(languagePair: LanguagePair(sourceCode: "en", targetCode: "zh"))
+        _ = buffer.applyPartial("hello")
+        let mutation = buffer.commitCurrentDraft(reason: .partialStabilized, now: Date())
+        let id = mutation!.committedSegment!.id
+
+        _ = buffer.markTranslationStarted(for: id)
+        _ = buffer.applyTranslationResult(
+            TranslationResult(
+                segmentID: id,
+                text: "你好",
+                backend: .system,
+                isDegraded: false,
+                appliedPolish: false
+            ),
+            at: Date()
+        )
+
+        let snapshot = buffer.confirmSegments(ids: [id])
+        let segment = snapshot.committedSegments.first
+        #expect(segment?.isProvisional == false)
+        #expect(segment?.translatedText == "你好")
+        #expect(segment?.status == .translated)
+    }
+
+    @Test("removeSegments 应删除已翻译 provisional 段，迟到结果不会重新插回")
+    func testRemoveSegmentsDropsTranslatedProvisional() {
+        let buffer = TranscriptBuffer(languagePair: LanguagePair(sourceCode: "en", targetCode: "zh"))
+        _ = buffer.applyPartial("hello")
+        let mutation = buffer.commitCurrentDraft(reason: .partialStabilized, now: Date())
+        let id = mutation!.committedSegment!.id
+
+        _ = buffer.markTranslationStarted(for: id)
+        _ = buffer.applyTranslationResult(
+            TranslationResult(
+                segmentID: id,
+                text: "你好",
+                backend: .system,
+                isDegraded: false,
+                appliedPolish: false
+            ),
+            at: Date()
+        )
+
+        let removedSnapshot = buffer.removeSegments(ids: [id])
+        #expect(removedSnapshot.committedSegments.isEmpty)
+
+        let lateSnapshot = buffer.applyTranslationResult(
+            TranslationResult(
+                segmentID: id,
+                text: "迟到的结果",
+                backend: .system,
+                isDegraded: false,
+                appliedPolish: false
+            ),
+            at: Date()
+        )
+        #expect(lateSnapshot.committedSegments.isEmpty)
+    }
+
     @Test("reset 应该清空所有状态")
     func testReset() {
         let buffer = TranscriptBuffer(languagePair: LanguagePair(sourceCode: "en", targetCode: "zh"))

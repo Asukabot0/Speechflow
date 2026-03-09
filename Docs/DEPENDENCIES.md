@@ -1,11 +1,11 @@
 # Speechflow Dependency Inventory
 
-This document records the dependencies used by the live codebase as of March 4, 2026.
+This document records the dependencies used by the live codebase as of March 7, 2026.
 
 It is an inventory, not a lockfile:
 
 - Swift build dependencies are defined in [Package.swift](/Users/asukabot/Speechflow/Package.swift).
-- Python package versions below reflect the currently active runtime used by this workspace (`python3` -> `/opt/homebrew/Caskroom/miniconda/base/bin/python3`).
+- Checked-in Python ASR dependencies are defined in [requirements.txt](/Users/asukabot/Speechflow/requirements.txt).
 - Optional Apple frameworks and local services can still be absent at runtime if the host machine is not configured for them.
 
 ## 1. Build Toolchain
@@ -34,7 +34,7 @@ Internal package targets:
 
 Bundled package resources:
 
-- [faster_whisper_runner.py](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Resources/faster_whisper_runner.py)
+- [qwen_asr_runner.py](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Resources/qwen_asr_runner.py)
 - [Info.plist](/Users/asukabot/Speechflow/Sources/SpeechflowApp/Resources/Info.plist)
 
 ## 3. Apple Framework Dependencies
@@ -64,7 +64,8 @@ Notes:
 Required or expected local runtimes outside SwiftPM:
 
 - `Python 3`
-- Local Hugging Face model cache for ASR under `~/Library/Application Support/Speechflow/Models/ASR`
+- Apple Silicon with MLX / Metal support for the primary ASR path
+- Local Hugging Face model cache for ASR downloads, or an explicit `SPEECHFLOW_ASR_MODEL_PATH`
 - OpenRouter API access for cloud translation
 - Local Ollama HTTP service for translation (`http://127.0.0.1:11434` by default)
 
@@ -74,59 +75,40 @@ Optional host tools used by scripts:
 
 ## 5. Python ASR Dependencies
 
-The ASR runner supports both the current Qwen path and the legacy faster-whisper path. The app does not ship a `requirements.txt` yet, so the versions below are the currently installed runtime versions rather than repo-pinned versions.
+The live ASR runner now targets `mlx-audio` with `mlx-community/Qwen3-ASR-1.7B-4bit` on Apple Silicon. The repo ships a minimal [requirements.txt](/Users/asukabot/Speechflow/requirements.txt) for the primary Python dependency.
 
 ### 5.1 Direct Python Packages Used by the ASR Runtime
 
-- `qwen-asr==0.0.6`
-- `faster-whisper==1.2.1`
-- `torch==2.10.0`
-- `transformers==4.57.6`
-- `huggingface_hub==0.36.2`
-- `qwen-omni-utils==0.0.9`
-- `sox==1.5.0`
-
-Current availability in the active Python runtime:
-
-- `qwen_asr`: installed
-- `faster_whisper`: installed
-
-### 5.2 Immediate Python Dependencies Introduced by Qwen ASR
-
-Observed package chain for the currently installed `qwen-asr` runtime:
-
-- `accelerate==1.12.0`
-- `Flask==3.0.0`
-- `gradio==6.8.0`
+- `mlx-audio==0.3.1`
+- `mlx>=0.25.2`
+- `mlx-lm==0.30.5`
+- `transformers==5.0.0rc3`
+- `huggingface_hub>=0.27.0`
+- `numpy>=1.26.4`
 - `librosa==0.11.0`
-- `nagisa==0.2.11`
-- `pytz==2026.1.post1`
-- `qwen-omni-utils==0.0.9`
-- `soundfile==0.13.1`
-- `sox==1.5.0`
-- `soynlp==0.0.493`
-- `transformers==4.57.6`
 
-### 5.3 Immediate Python Dependencies Introduced by Faster Whisper
+Key import/runtime expectations:
 
-Observed package chain for the currently installed `faster-whisper` runtime:
+- `mlx_audio` must be importable from the Python executable referenced by `SPEECHFLOW_ASR_PYTHON_PATH`
+- `mlx.core.metal.is_available()` must return `True` for the primary path to start
+- Legacy `SPEECHFLOW_FASTER_WHISPER_*` environment aliases are still accepted by the Swift runtime descriptor
 
-- `av==16.1.0`
-- `ctranslate2==4.7.1`
-- `huggingface_hub==0.36.2`
-- `onnxruntime==1.24.2`
-- `tokenizers==0.22.2`
-- `tqdm==4.67.1`
+### 5.2 Immediate Python Dependencies Introduced by MLX Audio
+
+Selected transitive dependencies declared by `mlx-audio==0.3.1`:
+
+- `miniaudio>=1.61`
+- `librosa==0.11.0`
+- `numba>=0.60.0`
+- `pyloudnorm>=0.2.0`
+- `sounddevice==0.5.3`
+- `tqdm>=4.67.1`
 
 ## 6. Model Dependencies
 
 Default ASR model:
 
-- `Qwen/Qwen3-ASR-1.7B`
-
-Alternative ASR backend still supported by the same runner:
-
-- `faster-whisper` models, when selected through `SPEECHFLOW_ASR_BACKEND=faster_whisper` or legacy faster-whisper environment variables
+- `mlx-community/Qwen3-ASR-1.7B-4bit`
 
 Default local translation models expected by the current code:
 
@@ -139,6 +121,6 @@ Default cloud translation model:
 
 ## 7. Operational Notes
 
-- There is currently no repo-managed `requirements.txt`, `pyproject.toml`, or lockfile for the Python runtime.
+- The repo now includes a minimal [requirements.txt](/Users/asukabot/Speechflow/requirements.txt) for the primary ASR dependency, but it is not a full lockfile.
 - Updating the Python environment can change behavior outside this repo because the ASR runtime is resolved from the active machine Python installation.
 - If dependency reproducibility becomes important, the next step should be adding a checked-in Python dependency file and documenting the bootstrap command in the same place.

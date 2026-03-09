@@ -96,6 +96,45 @@ enum TextChunkingHelper {
         return chunks.isEmpty ? [text] : chunks
     }
 
+    /// Splits text at the last terminal punctuation that is followed by
+    /// non-empty trailing content. Returns (completed sentences, in-progress remainder).
+    /// When there is no such boundary, completed is empty and remainder is the full text.
+    static func splitCompletedPrefix(_ text: String) -> (completed: String, remainder: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return ("", "")
+        }
+
+        // Walk backwards to find the last terminal punctuation followed by content
+        var splitIndex: String.Index?
+        for index in trimmed.indices.reversed() {
+            guard terminalPunctuation.contains(trimmed[index]) else {
+                continue
+            }
+            let afterIndex = trimmed.index(after: index)
+            guard afterIndex < trimmed.endIndex else {
+                continue
+            }
+            let remaining = trimmed[afterIndex...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !remaining.isEmpty {
+                splitIndex = index
+                break
+            }
+        }
+
+        guard let boundary = splitIndex else {
+            return ("", trimmed)
+        }
+
+        let completed = String(trimmed[...boundary])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let remainder = String(trimmed[trimmed.index(after: boundary)...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return (completed, remainder)
+    }
+
     static func endsWithTerminalPunctuation(_ text: String) -> Bool {
         guard let lastCharacter = text.last else {
             return false

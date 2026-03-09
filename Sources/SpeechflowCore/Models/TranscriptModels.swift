@@ -28,6 +28,7 @@ public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
     public let id: UUID
     public var sourceText: String
     public var normalizedSourceText: String
+    public var isProvisional: Bool
     public var translatedText: String?
     public var assistantText: String?
     public var assistantQuestionSummary: String?
@@ -43,6 +44,7 @@ public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
         id: UUID = UUID(),
         sourceText: String,
         normalizedSourceText: String,
+        isProvisional: Bool = false,
         translatedText: String? = nil,
         assistantText: String? = nil,
         assistantQuestionSummary: String? = nil,
@@ -57,6 +59,7 @@ public struct TranscriptSegment: Identifiable, Hashable, Codable, Sendable {
         self.id = id
         self.sourceText = sourceText
         self.normalizedSourceText = normalizedSourceText
+        self.isProvisional = isProvisional
         self.translatedText = translatedText
         self.assistantText = assistantText
         self.assistantQuestionSummary = assistantQuestionSummary

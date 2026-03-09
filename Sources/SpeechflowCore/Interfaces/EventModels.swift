@@ -31,9 +31,18 @@ public struct PermissionSet: Equatable, Sendable {
     public func missingRequirementsMessage(for inputSource: AudioInputSource) -> String {
         switch inputSource {
         case .microphone:
-            return "Microphone and speech recognition permissions are required."
+            switch (microphoneGranted, speechRecognitionGranted) {
+            case (false, false):
+                return "Microphone and speech recognition permissions are required."
+            case (false, true):
+                return "Microphone permission is required."
+            case (true, false):
+                return "Speech recognition permission is required."
+            case (true, true):
+                return "Microphone and speech recognition permissions are required."
+            }
         case .systemAudio:
-            return "Speech recognition permission is required before starting system audio translation."
+            return "Speech recognition permission is required."
         }
     }
 }

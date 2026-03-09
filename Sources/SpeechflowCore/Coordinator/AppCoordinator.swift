@@ -21,12 +21,9 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
     private var pendingInputSource: AudioInputSource = .microphone
     private var isAwaitingPermissions = false
     private var shouldStartWhenPermissionsResolve = false
-    private var pendingTranslationSegments: [TranscriptSegment] = []
-    private let maxTranslationAccumulationCharacters = 50
-
-    private let minimumStableCommitCharacters = 4
-    private let minimumSemanticChunkCharacters = 8
-    private let minimumSemanticChunkTokens = 3
+    private var provisionalSegmentIDs: [UUID] = []
+    private var provisionalCommittedPrefix = ""
+    private var hasPendingProvisionalCorrection = false
 
     private let autoCommitScheduler = AutoCommitScheduler()
     private let eventQueue = DispatchQueue.main
@@ -52,9 +49,14 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         self.overlayRenderer = overlayRenderer
         self.settingsStore = settingsStore
         self.clock = clock
-        self.settings = settingsStore.load()
+        let loadedSettings = settingsStore.load().normalizedForRuntime()
+        self.settings = loadedSettings
         self.transcriptBuffer.updateLanguagePair(self.settings.languagePair)
-        self.asrService.updateLocaleIdentifier(self.settings.languagePair.sourceCode)
+        self.asrService.updateLocaleIdentifier(
+            LocaleIdentifierNormalizer.normalizedInputLocaleIdentifier(
+                self.settings.languagePair.sourceCode
+            )
+        )
         self.audioService.updateRecognitionTuning(self.settings.recognitionTuning)
         self.translateService.updateLanguagePair(self.settings.languagePair)
         self.translateService.updatePolicy(self.settings.translationPolicy)
@@ -147,7 +149,7 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
 
     private func startSession() {
         guard canStartSession else {
-            print("[Coordinator] startSession() — cannot start, state=\(state)")
+            debugLog("[Coordinator] startSession() — cannot start, state=\(state)")
             return
         }
 
@@ -189,11 +191,10 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         }
 
         cancelAutoCommitTimers()
-        flushPendingTranslation()
+        resetProvisionalTracking()
         audioService.pauseCapture()
         asrService.stopStreaming()
         networkMonitor.stop()
-        translateService.cancelAll()
         state = .paused
     }
 
@@ -233,7 +234,7 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         isAwaitingPermissions = false
         shouldStartWhenPermissionsResolve = false
         cancelAutoCommitTimers()
-        flushPendingTranslation()
+        resetProvisionalTracking()
         audioService.stopCapture()
         asrService.stopStreaming()
         networkMonitor.stop()
@@ -278,9 +279,51 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
             return
         }
 
-        _ = transcriptBuffer.applyPartial(text)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !provisionalCommittedPrefix.isEmpty,
+           !trimmedText.hasPrefix(provisionalCommittedPrefix) {
+            hasPendingProvisionalCorrection = true
+        }
+
+        if hasPendingProvisionalCorrection {
+            cancelAutoCommitTimers()
+            _ = transcriptBuffer.applyPartial(trimmedText)
+            renderCurrentSnapshot()
+            return
+        }
+
+        let (completed, remainder) = TextChunkingHelper.splitCompletedPrefix(trimmedText)
+
+        // Commit newly completed sentences that we haven't committed yet
+        if !completed.isEmpty && completed != provisionalCommittedPrefix {
+            let newlyCompleted: String
+            if !provisionalCommittedPrefix.isEmpty,
+               completed.hasPrefix(provisionalCommittedPrefix) {
+                newlyCompleted = String(completed.dropFirst(provisionalCommittedPrefix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            } else {
+                newlyCompleted = completed
+            }
+
+            if !newlyCompleted.isEmpty {
+                cancelAutoCommitTimers()
+                let chunks = TextChunkingHelper.splitIntoTranslationChunks(newlyCompleted)
+                for chunk in chunks {
+                    _ = transcriptBuffer.applyPartial(chunk)
+                    commitCurrentDraft(reason: .partialStabilized)
+                }
+            }
+        }
+
+        _ = transcriptBuffer.applyPartial(remainder)
         renderCurrentSnapshot()
-        scheduleAutoCommit(for: text)
+
+        if !remainder.isEmpty {
+            scheduleAutoCommit(for: remainder)
+        } else {
+            cancelAutoCommitTimers()
+        }
     }
 
     private func handleFinal(_ text: String) {
@@ -289,17 +332,42 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         }
 
         cancelAutoCommitTimers()
+        let finalText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolution = resolveProvisionalSegments(for: finalText)
+        let clearedSnapshot = clearCurrentPartial()
+        var currentSnapshot = clearedSnapshot
 
-        let chunks = TextChunkingHelper.splitIntoTranslationChunks(text)
+        if !resolution.confirmedIDs.isEmpty {
+            currentSnapshot = transcriptBuffer.confirmSegments(ids: resolution.confirmedIDs)
+        }
+
+        if !resolution.removedIDs.isEmpty {
+            currentSnapshot = transcriptBuffer.removeSegments(ids: resolution.removedIDs)
+        }
+
+        resetProvisionalTracking()
+
+        let textToProcess = resolution.textToProcess
+        guard !textToProcess.isEmpty else {
+            render(snapshot: currentSnapshot)
+            return
+        }
+
+        let chunks = TextChunkingHelper.splitIntoTranslationChunks(textToProcess)
         for chunk in chunks {
             _ = transcriptBuffer.applyPartial(chunk)
             commitCurrentDraft(reason: .finalResult)
         }
     }
 
-    private func commitCurrentDraft(reason: CommitReason) {
+    @discardableResult
+    private func commitCurrentDraft(reason: CommitReason) -> TranscriptBufferMutation? {
         guard case .listening = state else {
-            return
+            return nil
+        }
+
+        if hasPendingProvisionalCorrection, reason != .finalResult {
+            return nil
         }
 
         cancelAutoCommitTimers()
@@ -308,77 +376,29 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
             reason: reason,
             now: clock.now
         ) else {
-            return
+            return nil
         }
 
-        render(snapshot: mutation.snapshot)
-
-        guard settings.translationEnabledByDefault,
-              let segment = mutation.committedSegment else {
-            return
+        guard let segment = mutation.committedSegment else {
+            render(snapshot: mutation.snapshot)
+            return mutation
         }
 
-        accumulateForTranslation(segment)
-    }
-
-    private func accumulateForTranslation(_ segment: TranscriptSegment) {
-        pendingTranslationSegments.append(segment)
-
-        let accumulatedText = pendingTranslationSegments
-            .map(\.sourceText)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        if TextChunkingHelper.endsWithTerminalPunctuation(accumulatedText)
-            || accumulatedText.count >= maxTranslationAccumulationCharacters {
-            flushPendingTranslation()
-        }
-    }
-
-    private func flushPendingTranslation() {
-        guard !pendingTranslationSegments.isEmpty else {
-            return
+        if reason == .partialStabilized {
+            trackProvisionalSegment(segment)
         }
 
-        let mergedText = pendingTranslationSegments
-            .map(\.sourceText)
-            .joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !mergedText.isEmpty,
-              let lastSegment = pendingTranslationSegments.last else {
-            pendingTranslationSegments.removeAll()
-            return
-        }
-
-        logToFile(mergedText, prefix: "Original")
+        logToFile(segment.sourceText, prefix: "Original")
 
         guard settings.translationEnabledByDefault else {
-            pendingTranslationSegments.removeAll()
-            return
+            render(snapshot: mutation.snapshot)
+            return mutation
         }
 
-        let normalizedMergedText = mergedText
-            .split(whereSeparator: \.isWhitespace)
-            .joined(separator: " ")
-            .lowercased()
-
-        let translationSegment = TranscriptSegment(
-            id: lastSegment.id,
-            sourceText: mergedText,
-            normalizedSourceText: normalizedMergedText,
-            status: .committed,
-            createdAt: lastSegment.createdAt,
-            committedAt: lastSegment.committedAt,
-            sourceLanguage: lastSegment.sourceLanguage,
-            targetLanguage: lastSegment.targetLanguage
-        )
-
-        pendingTranslationSegments.removeAll()
-
-        _ = transcriptBuffer.markTranslationStarted(for: lastSegment.id)
-        renderCurrentSnapshot()
-        translateService.enqueue(translationSegment)
+        let translatingSnapshot = transcriptBuffer.markTranslationStarted(for: segment.id)
+        render(snapshot: translatingSnapshot)
+        translateService.enqueue(segment)
+        return mutation
     }
 
     private func renderCurrentSnapshot() {
@@ -394,25 +414,26 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
     }
 
     private func applySettings(_ newSettings: SpeechflowSettings) {
-        let sourceLanguageChanged = settings.languagePair.sourceCode != newSettings.languagePair.sourceCode
+        let normalizedSettings = newSettings.normalizedForRuntime()
+        let sourceLanguageChanged = settings.languagePair.sourceCode != normalizedSettings.languagePair.sourceCode
         let audioInputConfigurationChanged = hasAudioInputConfigurationChange(
             from: settings.recognitionTuning,
-            to: newSettings.recognitionTuning
+            to: normalizedSettings.recognitionTuning
         )
-        settings = newSettings
-        settingsStore.save(newSettings)
-        transcriptBuffer.updateLanguagePair(newSettings.languagePair)
-        audioService.updateRecognitionTuning(newSettings.recognitionTuning)
+        settings = normalizedSettings
+        settingsStore.save(normalizedSettings)
+        transcriptBuffer.updateLanguagePair(normalizedSettings.languagePair)
+        audioService.updateRecognitionTuning(normalizedSettings.recognitionTuning)
         refreshRecognitionPipelineIfNeeded(
-            localeIdentifier: newSettings.languagePair.sourceCode,
+            localeIdentifier: normalizedSettings.languagePair.sourceCode,
             sourceLanguageChanged: sourceLanguageChanged,
             audioInputConfigurationChanged: audioInputConfigurationChanged
         )
-        translateService.updateLanguagePair(newSettings.languagePair)
-        translateService.updatePolicy(newSettings.translationPolicy)
-        translateService.updateBackendPreference(newSettings.translationBackendPreference)
-        translateService.updateOpenRouterAPIKey(newSettings.openRouterAPIKey)
-        overlayRenderer.setVisibility(newSettings.overlayVisibleByDefault)
+        translateService.updateLanguagePair(normalizedSettings.languagePair)
+        translateService.updatePolicy(normalizedSettings.translationPolicy)
+        translateService.updateBackendPreference(normalizedSettings.translationBackendPreference)
+        translateService.updateOpenRouterAPIKey(normalizedSettings.openRouterAPIKey)
+        overlayRenderer.setVisibility(normalizedSettings.overlayVisibleByDefault)
         renderCurrentSnapshot()
     }
 
@@ -430,7 +451,9 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         sourceLanguageChanged: Bool,
         audioInputConfigurationChanged: Bool
     ) {
-        asrService.updateLocaleIdentifier(localeIdentifier)
+        asrService.updateLocaleIdentifier(
+            LocaleIdentifierNormalizer.normalizedInputLocaleIdentifier(localeIdentifier)
+        )
 
         guard sourceLanguageChanged || audioInputConfigurationChanged else {
             return
@@ -464,6 +487,7 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         isAwaitingPermissions = false
         shouldStartWhenPermissionsResolve = false
         cancelAutoCommitTimers()
+        resetProvisionalTracking()
         audioService.stopCapture()
         asrService.stopStreaming()
         networkMonitor.stop()
@@ -498,6 +522,98 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
 
     private func cancelAutoCommitTimers() {
         autoCommitScheduler.cancelAll()
+    }
+
+    private func trackProvisionalSegment(_ segment: TranscriptSegment) {
+        provisionalSegmentIDs.append(segment.id)
+        provisionalCommittedPrefix = appendSegmentText(
+            segment.sourceText,
+            to: provisionalCommittedPrefix
+        )
+    }
+
+    private func resetProvisionalTracking() {
+        provisionalSegmentIDs.removeAll(keepingCapacity: true)
+        provisionalCommittedPrefix = ""
+        hasPendingProvisionalCorrection = false
+    }
+
+    private func clearCurrentPartial() -> TranscriptSnapshot {
+        transcriptBuffer.applyPartial("").snapshot
+    }
+
+    private func resolveProvisionalSegments(for finalText: String) -> ProvisionalResolution {
+        guard !provisionalSegmentIDs.isEmpty else {
+            return ProvisionalResolution(textToProcess: finalText)
+        }
+
+        guard !hasPendingProvisionalCorrection else {
+            return ProvisionalResolution(
+                confirmedIDs: [],
+                removedIDs: provisionalSegmentIDs,
+                textToProcess: finalText
+            )
+        }
+
+        let snapshot = transcriptBuffer.snapshot
+        let segmentsByID = Dictionary(
+            uniqueKeysWithValues: snapshot.committedSegments.map { ($0.id, $0) }
+        )
+        let provisionalSegments = provisionalSegmentIDs.compactMap { segmentsByID[$0] }
+
+        guard !provisionalSegments.isEmpty else {
+            return ProvisionalResolution(textToProcess: finalText)
+        }
+
+        var confirmedIDs: [UUID] = []
+        var remainingText = finalText
+
+        for (index, segment) in provisionalSegments.enumerated() {
+            remainingText = remainingText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let currentText = remainingText
+
+            guard currentText.hasPrefix(segment.sourceText) else {
+                return ProvisionalResolution(
+                    confirmedIDs: confirmedIDs,
+                    removedIDs: Array(provisionalSegments[index...].map(\.id)),
+                    textToProcess: currentText
+                )
+            }
+
+            let isExactMatch = currentText == segment.sourceText
+            let canConfirmPrefix = TextChunkingHelper.endsWithTerminalPunctuation(segment.sourceText)
+                || isExactMatch
+
+            guard canConfirmPrefix else {
+                return ProvisionalResolution(
+                    confirmedIDs: confirmedIDs,
+                    removedIDs: Array(provisionalSegments[index...].map(\.id)),
+                    textToProcess: currentText
+                )
+            }
+
+            confirmedIDs.append(segment.id)
+            remainingText = String(currentText.dropFirst(segment.sourceText.count))
+        }
+
+        return ProvisionalResolution(
+            confirmedIDs: confirmedIDs,
+            removedIDs: [],
+            textToProcess: remainingText.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+    }
+
+    private func appendSegmentText(_ segmentText: String, to prefix: String) -> String {
+        let trimmedSegment = segmentText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSegment.isEmpty else {
+            return prefix
+        }
+
+        guard !prefix.isEmpty else {
+            return trimmedSegment
+        }
+
+        return "\(prefix) \(trimmedSegment)"
     }
 
     private func requestPermissionsThenStartIfNeeded(for inputSource: AudioInputSource) {
@@ -552,5 +668,30 @@ public final class AppCoordinator: SpeechflowCoordinating, ObservableObject {
         case .listening, .paused, .error:
             return false
         }
+    }
+}
+
+private struct ProvisionalResolution {
+    let confirmedIDs: [UUID]
+    let removedIDs: [UUID]
+    let textToProcess: String
+
+    init(
+        confirmedIDs: [UUID] = [],
+        removedIDs: [UUID] = [],
+        textToProcess: String
+    ) {
+        self.confirmedIDs = confirmedIDs
+        self.removedIDs = removedIDs
+        self.textToProcess = textToProcess
+    }
+}
+
+private extension SpeechflowSettings {
+    func normalizedForRuntime() -> SpeechflowSettings {
+        var normalized = self
+        normalized.languagePair.sourceCode = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(languagePair.sourceCode)
+        return normalized
     }
 }

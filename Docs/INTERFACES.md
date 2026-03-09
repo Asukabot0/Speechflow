@@ -20,7 +20,7 @@ File: [Package.swift](/Users/asukabot/Speechflow/Package.swift)
 Current targets:
 
 - `SpeechflowCore`
-  Shared models, protocols, orchestration, service implementations, and the bundled `faster_whisper_runner.py` resource.
+  Shared models, protocols, orchestration, service implementations, and the bundled `qwen_asr_runner.py` resource.
 
 - `SpeechflowApp`
   The macOS menu bar app, SwiftUI views, overlay windows, and live renderer wiring.
@@ -29,12 +29,12 @@ Current targets:
   A CLI executable for measuring local Ollama translation latency against the currently selected model.
 
 - `SpeechflowCoreTests`
-  Swift Testing test target containing 51 unit and integration tests across 6 suites. Depends on `SpeechflowCore` only. Uses existing stub implementations for dependency injection.
+  Swift Testing test target containing 82 unit and integration tests across 9 suites. Depends on `SpeechflowCore` only. Uses existing stub implementations for dependency injection.
 
 Notable packaging rule:
 
 - `SpeechflowCore` has no Swift package dependencies. Local ASR and translation rely on system frameworks plus local external runtimes:
-  - Python 3 + `qwen-asr` (with legacy `faster-whisper` compatibility)
+  - Python 3 + `mlx-audio` on Apple Silicon / MLX (legacy `SPEECHFLOW_FASTER_WHISPER_*` env aliases remain accepted)
   - local Ollama HTTP service
 - Full dependency inventory lives in [DEPENDENCIES.md](/Users/asukabot/Speechflow/Docs/DEPENDENCIES.md).
 
@@ -323,7 +323,7 @@ Current live graph:
 The current live flow is:
 
 1. Capture source produces audio buffers.
-2. `WhisperTurboASRService` resamples to 16 kHz mono and sends audio windows to the Python `faster-whisper` runner.
+2. `WhisperTurboASRService` resamples to 16 kHz mono and sends audio windows to the bundled Python MLX ASR runner.
 3. `PreferredLocalASRService` forwards primary ASR events, or switches to `SpeechFrameworkASRService` if the primary fails.
 4. `AppCoordinator` updates partial text, schedules commit timers, and commits draft text when final/stable/silence conditions are met.
 5. `TranscriptBuffer` suppresses duplicate commits and folds recent overlapping refinements.
@@ -337,7 +337,7 @@ The current live flow is:
 Primary files:
 
 - [WhisperTurboASRService.swift](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Services/WhisperTurboASRService.swift)
-- [faster_whisper_runner.py](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Resources/faster_whisper_runner.py)
+- [qwen_asr_runner.py](/Users/asukabot/Speechflow/Sources/SpeechflowCore/Resources/qwen_asr_runner.py)
 
 ### 6.1 Primary Recognition Path
 
@@ -347,8 +347,8 @@ It currently:
 
 - validates a local Python 3 runtime
 - launches a persistent bundled Python runner
-- uses `faster-whisper` as the inference engine
-- defaults to the `turbo` model
+- uses `mlx-audio` with `mlx-community/Qwen3-ASR-1.7B-4bit` as the inference engine
+- requires Apple Silicon with MLX / Metal available for the primary path
 - converts incoming audio to 16 kHz mono
 - emits partial and final events
 - performs aggressive subtitle-oriented segmentation before forwarding text downstream
@@ -366,9 +366,9 @@ This fallback is non-fatal. The session should continue if the fallback starts s
 
 Segmentation is intentionally layered:
 
-1. Prefer `faster-whisper`'s own returned segment boundaries.
-2. If the model returns multiple segments, commit the earliest segment and keep the tail rolling as partial text.
-3. If the model returns a single long segment, apply heuristic split rules:
+1. Prefer runner-returned segment boundaries when they exist.
+2. The current Qwen runner usually returns one normalized rolling transcript segment, so most sentence shaping happens on the Swift side.
+3. Heuristic split rules still apply in Swift:
    - terminal punctuation first
    - clause punctuation next
    - token-boundary forced split last
@@ -380,21 +380,17 @@ This logic is still under active tuning. It is expected to evolve.
 
 Most important runtime overrides:
 
-- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH`
-- `SPEECHFLOW_FASTER_WHISPER_MODEL`
-- `SPEECHFLOW_FASTER_WHISPER_MODEL_PATH`
-- `SPEECHFLOW_FASTER_WHISPER_DOWNLOAD_ROOT`
-- `SPEECHFLOW_FASTER_WHISPER_DEVICE`
-- `SPEECHFLOW_FASTER_WHISPER_COMPUTE_TYPE`
-- `SPEECHFLOW_WHISPER_POLL_SECONDS`
-- `SPEECHFLOW_WHISPER_MIN_START_SECONDS`
-- `SPEECHFLOW_WHISPER_MIN_INCREMENT_SECONDS`
-- `SPEECHFLOW_WHISPER_MAX_WINDOW_SECONDS`
-- `SPEECHFLOW_FASTER_WHISPER_BEAM_SIZE`
-- `SPEECHFLOW_FASTER_WHISPER_BEST_OF`
-- `SPEECHFLOW_FASTER_WHISPER_VAD_MIN_SPEECH_MS`
-- `SPEECHFLOW_FASTER_WHISPER_VAD_MIN_SILENCE_MS`
-- `SPEECHFLOW_FASTER_WHISPER_VAD_SPEECH_PAD_MS`
+- `SPEECHFLOW_ASR_PYTHON_PATH` (preferred)
+- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` (legacy alias)
+- `SPEECHFLOW_ASR_MODEL` (`SPEECHFLOW_FASTER_WHISPER_MODEL` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_MODEL_PATH` (`SPEECHFLOW_FASTER_WHISPER_MODEL_PATH` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_MAX_NEW_TOKENS`
+- `SPEECHFLOW_ASR_POLL_SECONDS` (`SPEECHFLOW_WHISPER_POLL_SECONDS` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_MIN_START_SECONDS` (`SPEECHFLOW_WHISPER_MIN_START_SECONDS` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_MIN_INCREMENT_SECONDS` (`SPEECHFLOW_WHISPER_MIN_INCREMENT_SECONDS` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_MAX_WINDOW_SECONDS` (`SPEECHFLOW_WHISPER_MAX_WINDOW_SECONDS` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_STARTUP_TIMEOUT_SECONDS` (`SPEECHFLOW_FASTER_WHISPER_STARTUP_TIMEOUT_SECONDS` remains accepted as a legacy alias)
+- `SPEECHFLOW_ASR_REQUEST_TIMEOUT_SECONDS` (`SPEECHFLOW_FASTER_WHISPER_REQUEST_TIMEOUT_SECONDS` remains accepted as a legacy alias)
 
 Rule:
 

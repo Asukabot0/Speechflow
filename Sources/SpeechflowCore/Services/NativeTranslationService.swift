@@ -147,13 +147,6 @@ public final class NativeTranslationService: ObservableObject, TranslateServicin
     }
 
     private func translationLocaleIdentifier(for code: String) -> String {
-        switch code {
-        case "zh-Hans":
-            return "zh-CN"
-        case "zh-Hant":
-            return "zh-TW"
-        default:
-            return code
-        }
+        LocaleIdentifierNormalizer.translationLocaleIdentifier(for: code)
     }
 }

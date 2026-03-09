@@ -15,7 +15,7 @@ public enum WhisperTurboASRError: LocalizedError {
         case .recognizerAlreadyRunning:
             return "A Whisper Turbo recognition task is already running."
         case .executableUnavailable(let path):
-            return "Python 3 was not found at \(path). Install Python 3 or set SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH."
+            return "Python 3 was not found at \(path). Install Python 3 or set SPEECHFLOW_ASR_PYTHON_PATH."
         case .runnerUnavailable(let path):
             return "The bundled ASR runner was not found at \(path)."
         case .modelUnavailable(let path):
@@ -59,7 +59,8 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
         localeIdentifier: String = Locale.current.identifier
     ) {
         self.audioService = audioService
-        self.localeIdentifier = localeIdentifier
+        self.localeIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
         self.runtime = FasterWhisperTurboRuntime()
     }
 
@@ -69,13 +70,16 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
         runtime: WhisperTurboRuntime
     ) {
         self.audioService = audioService
-        self.localeIdentifier = localeIdentifier
+        self.localeIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
         self.runtime = runtime
     }
 
     public func updateLocaleIdentifier(_ localeIdentifier: String) {
+        let normalizedLocaleIdentifier = LocaleIdentifierNormalizer
+            .normalizedInputLocaleIdentifier(localeIdentifier)
         controlQueue.sync {
-            self.localeIdentifier = localeIdentifier
+            self.localeIdentifier = normalizedLocaleIdentifier
         }
     }
 
@@ -765,5 +769,4 @@ public final class WhisperTurboASRService: LocalASRServicing, @unchecked Sendabl
         return String(text[index...])
     }
 }
-
 

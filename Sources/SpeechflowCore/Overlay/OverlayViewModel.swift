@@ -3,22 +3,43 @@ import Foundation
 public enum OverlayViewModelBuilder {
     private static let maxCharsPerLine = 50
     private static let maxCharsPerLineTranslated = 30
-    private static let maxOriginalVisibleLines = 3
-    private static let maxTranslatedVisibleLines = 8
     private static let assistantSummaryPrefix = "__assistant_summary__:"
+
+    private static let partialBaseUUID = UUID(uuidString: "00000000-0000-4000-8000-000000000000")!
+    private static let nsOriginal: UInt8 = 0x01
+    private static let nsTranslated: UInt8 = 0x02
+    private static let nsTranslatedSpace: UInt8 = 0x03
+    private static let nsAssistant: UInt8 = 0x04
+    private static let nsAssistantSpace: UInt8 = 0x05
+    private static let nsAssistantLabel: UInt8 = 0x06
+    private static let nsAssistantSummary: UInt8 = 0x07
+    private static let nsPartial: UInt8 = 0x08
+
+    static func stableLineID(base: UUID, namespace: UInt8, lineIndex: Int) -> UUID {
+        var bytes = base.uuid
+        bytes.0 ^= namespace
+        let idx = UInt32(truncatingIfNeeded: lineIndex)
+        bytes.12 = bytes.12 &+ UInt8(idx & 0xFF)
+        bytes.13 = bytes.13 &+ UInt8((idx >> 8) & 0xFF)
+        bytes.14 = bytes.14 &+ UInt8((idx >> 16) & 0xFF)
+        bytes.15 = bytes.15 &+ UInt8((idx >> 24) & 0xFF)
+        return UUID(uuid: bytes)
+    }
 
     public static func makeRenderModel(
         from snapshot: TranscriptSnapshot,
         maxLines: Int
     ) -> OverlayRenderModel {
-        _ = maxLines
-
         var originalLines: [OverlayLine] = []
         for segment in snapshot.committedSegments {
             let visualLines = splitIntoVisualLines(segment.sourceText, maxChars: maxCharsPerLine)
-            for line in visualLines {
+            for (i, line) in visualLines.enumerated() {
                 originalLines.append(
-                    OverlayLine(id: UUID(), text: line, isCommitted: true)
+                    OverlayLine(
+                        id: stableLineID(base: segment.id, namespace: nsOriginal, lineIndex: i),
+                        text: line,
+                        isCommitted: true
+                    )
                 )
             }
         }
@@ -26,9 +47,13 @@ public enum OverlayViewModelBuilder {
         let trimmedPartial = snapshot.partialText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedPartial.isEmpty {
             let visualLines = splitIntoVisualLines(trimmedPartial, maxChars: maxCharsPerLine)
-            for line in visualLines {
+            for (i, line) in visualLines.enumerated() {
                 originalLines.append(
-                    OverlayLine(id: UUID(), text: line, isCommitted: false)
+                    OverlayLine(
+                        id: stableLineID(base: partialBaseUUID, namespace: nsPartial, lineIndex: i),
+                        text: line,
+                        isCommitted: false
+                    )
                 )
             }
         }
@@ -41,41 +66,57 @@ public enum OverlayViewModelBuilder {
             }
             if translatedSegmentCount > 0 {
                 translatedLines.append(
-                    OverlayLine(id: UUID(), text: " ", isCommitted: true)
+                    OverlayLine(
+                        id: stableLineID(base: segment.id, namespace: nsTranslatedSpace, lineIndex: 0),
+                        text: " ",
+                        isCommitted: true
+                    )
                 )
             }
             let visualLines = splitIntoVisualLines(translatedText, maxChars: maxCharsPerLineTranslated)
-            for line in visualLines {
+            for (i, line) in visualLines.enumerated() {
                 translatedLines.append(
-                    OverlayLine(id: UUID(), text: line, isCommitted: true)
+                    OverlayLine(
+                        id: stableLineID(base: segment.id, namespace: nsTranslated, lineIndex: i),
+                        text: line,
+                        isCommitted: true
+                    )
                 )
             }
             translatedSegmentCount += 1
         }
 
         var assistantLines: [OverlayLine] = []
-        let assistantEntries = snapshot.committedSegments.compactMap { segment -> (summary: String?, body: String)? in
+        let assistantEntries = snapshot.committedSegments.compactMap { segment -> (id: UUID, summary: String?, body: String)? in
             guard let assistantText = segment.assistantText?.trimmingCharacters(in: .whitespacesAndNewlines),
                   !assistantText.isEmpty else {
                 return nil
             }
             let summary = segment.assistantQuestionSummary?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return (summary?.isEmpty == false ? summary : nil, assistantText)
+            return (segment.id, summary?.isEmpty == false ? summary : nil, assistantText)
         }
         for (index, assistantEntry) in assistantEntries.enumerated() {
             if index > 0 {
                 assistantLines.append(
-                    OverlayLine(id: UUID(), text: " ", isCommitted: true)
+                    OverlayLine(
+                        id: stableLineID(base: assistantEntry.id, namespace: nsAssistantSpace, lineIndex: 0),
+                        text: " ",
+                        isCommitted: true
+                    )
                 )
             }
             assistantLines.append(
-                OverlayLine(id: UUID(), text: "Q\(index + 1)", isCommitted: true)
+                OverlayLine(
+                    id: stableLineID(base: assistantEntry.id, namespace: nsAssistantLabel, lineIndex: 0),
+                    text: "Q\(index + 1)",
+                    isCommitted: true
+                )
             )
             if let summary = assistantEntry.summary {
                 assistantLines.append(
                     OverlayLine(
-                        id: UUID(),
+                        id: stableLineID(base: assistantEntry.id, namespace: nsAssistantSummary, lineIndex: 0),
                         text: "\(assistantSummaryPrefix)\(summary)",
                         isCommitted: true
                     )
@@ -85,20 +126,39 @@ public enum OverlayViewModelBuilder {
                 assistantEntry.body,
                 maxChars: maxCharsPerLineTranslated
             )
-            for line in visualLines {
+            for (i, line) in visualLines.enumerated() {
                 assistantLines.append(
-                    OverlayLine(id: UUID(), text: line, isCommitted: true)
+                    OverlayLine(
+                        id: stableLineID(base: assistantEntry.id, namespace: nsAssistant, lineIndex: i),
+                        text: line,
+                        isCommitted: true
+                    )
                 )
             }
         }
 
         let assistantStatus = snapshot.committedSegments.last?.assistantStatus ?? .idle
+        let visibleOriginalLines = cappedLines(originalLines, maxLines: maxLines)
+        let visibleTranslatedLines = cappedLines(translatedLines, maxLines: maxLines)
+        let visibleAssistantLines = cappedLines(assistantLines, maxLines: maxLines)
         return OverlayRenderModel(
-            originalLines: originalLines,
-            translatedLines: translatedLines,
-            assistantLines: assistantLines,
+            originalLines: visibleOriginalLines,
+            translatedLines: visibleTranslatedLines,
+            assistantLines: visibleAssistantLines,
             assistantStatus: assistantStatus
         )
+    }
+
+    private static func cappedLines(_ lines: [OverlayLine], maxLines: Int) -> [OverlayLine] {
+        guard maxLines > 0 else {
+            return []
+        }
+
+        guard lines.count > maxLines else {
+            return lines
+        }
+
+        return Array(lines.suffix(maxLines))
     }
 
     private static func splitIntoVisualLines(_ text: String, maxChars: Int) -> [String] {

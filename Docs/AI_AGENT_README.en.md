@@ -23,7 +23,7 @@ Run in order:
 ```bash
 cd /Users/asukabot/Speechflow
 ./Scripts/install_dev_dependencies.sh
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
+export SPEECHFLOW_ASR_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
 swift build
 ./Scripts/build_dev_app_bundle.sh
 open dist/Speechflow.app
@@ -32,19 +32,22 @@ open dist/Speechflow.app
 Notes:
 
 - `install_dev_dependencies.sh` installs `python`, `ollama`, and `ffmpeg`
-- The script creates `.venv` and installs `qwen-asr` and `faster-whisper`
+- The script creates `.venv` and installs `mlx-audio==0.3.1`
 - It starts Ollama and pulls `qwen3.5:0.8b` by default
+- Primary ASR runs `mlx-community/Qwen3-ASR-1.7B-4bit` through MLX on Apple Silicon; if MLX / Metal is unavailable or model startup fails, Speechflow falls back to `SpeechFrameworkASRService`
 
-If you need to install `qwen-asr` manually (without the script), run:
+If you need to install the MLX ASR runtime manually (without the script), run:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install --upgrade qwen-asr faster-whisper
-python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
+python -m pip install --upgrade "mlx-audio==0.3.1"
+python -c "import mlx_audio, mlx.core as mx; print('mlx-audio ok, metal=', mx.metal.is_available())"
+export SPEECHFLOW_ASR_PYTHON_PATH="/Users/asukabot/Speechflow/.venv/bin/python"
 ```
+
+The legacy alias `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` still works, but it is no longer the preferred setting.
 
 ## 4. Optional Install Modes
 
@@ -105,7 +108,7 @@ python3 --version
 ollama --version
 curl -fsS http://127.0.0.1:11434/api/tags
 ollama list
-python -c "import qwen_asr, faster_whisper; print('python deps ok')"
+python -c "import mlx_audio, mlx.core as mx; print('python deps ok, metal=', mx.metal.is_available())"
 swift build
 ./Scripts/run_local_translation_bench.sh
 test -d dist/Speechflow.app && echo "app bundle ok"
@@ -129,7 +132,10 @@ Expected results:
   Fix: run `ollama serve` and check `curl http://127.0.0.1:11434/api/tags`
 
 - Symptom: ASR reports invalid Python path
-  Fix: set `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` to `.venv/bin/python`
+  Fix: set `SPEECHFLOW_ASR_PYTHON_PATH` to `.venv/bin/python` (legacy `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` still works)
+
+- Symptom: MLX runner fails to start and reports missing Metal / Apple Silicon support
+  Fix: confirm the machine is Apple Silicon and `python -c "import mlx.core as mx; print(mx.metal.is_available())"` returns `True`; otherwise automatic fallback to system speech recognition is expected
 
 ## 8. Critical Entry Files
 

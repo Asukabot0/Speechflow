@@ -11,7 +11,7 @@ AI Agent install & deployment runbook: [English](Docs/AI_AGENT_README.en.md) | [
 - Menu bar workflow: `Start / Pause / Resume / Stop` session controls
 - Dual input sources: microphone and system audio (only one active at a time)
 - Local ASR with primary/fallback pipeline:
-  - Primary: `WhisperTurboASRService` (Python runner + Qwen ASR)
+  - Primary: `WhisperTurboASRService` (Python runner + `mlx-community/Qwen3-ASR-1.7B-4bit` via MLX on Apple Silicon)
   - Fallback: `SpeechFrameworkASRService`
 - Incremental commit strategy: `partial` + `silence/stable/final` triggers to reduce long-sentence latency
 - Translation routing:
@@ -73,10 +73,11 @@ Speechflow/
 - macOS 15+
 - Swift 6.2 (see `Package.swift`)
 - Python 3 (for local ASR runner)
+- Apple Silicon with MLX / Metal available for the primary ASR path (otherwise Speechflow falls back to system speech recognition)
 - Ollama (for local subtitle translation)
 - Optional: OpenRouter API key (assistant stream)
 
-> The repo currently has no Python lockfile; see `Docs/DEPENDENCIES.md`.
+> The repo ships a lightweight `requirements.txt`, but still has no Python lockfile; see `Docs/DEPENDENCIES.md`.
 
 ## Usage
 
@@ -93,18 +94,18 @@ Optional flags:
 - Pull multiple models:
   `SPEECHFLOW_BOOTSTRAP_OLLAMA_MODELS="qwen3.5:0.8b,qwen3.5:2b" ./Scripts/install_dev_dependencies.sh`
 
-### 0.1) Manual qwen-ASR Install (without bootstrap script)
+### 0.1) Manual MLX ASR Install (without bootstrap script)
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install --upgrade qwen-asr faster-whisper
-python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="$(pwd)/.venv/bin/python"
+python -m pip install --upgrade "mlx-audio==0.3.1"
+python -c "import mlx_audio, mlx.core as mx; print('mlx-audio ok, metal=', mx.metal.is_available())"
+export SPEECHFLOW_ASR_PYTHON_PATH="$(pwd)/.venv/bin/python"
 ```
 
-If you do not use `.venv`, install into your existing Python environment and make sure `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` points to the Python executable where `qwen-asr` is installed.
+If you do not use `.venv`, install into your existing Python environment and make sure `SPEECHFLOW_ASR_PYTHON_PATH` points to the Python executable where `mlx-audio` is installed. Legacy `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` remains accepted as an alias.
 
 ### 1) Build
 
@@ -121,6 +122,8 @@ open dist/Speechflow.app
 
 Note: for first-time permission checks, launch `dist/Speechflow.app`. Raw `swift run` binaries can behave poorly with macOS TCC permission prompts.
 
+ASR note: the primary recognizer loads `mlx-community/Qwen3-ASR-1.7B-4bit` through `mlx-audio` on Apple Silicon. If MLX / Metal is unavailable or model startup fails, Speechflow falls back to `SpeechFrameworkASRService` instead of trying to run the model on a degraded path.
+
 ### 3) Menu Bar Controls
 
 - `Translate Microphone`: start microphone input
@@ -135,7 +138,7 @@ Note: for first-time permission checks, launch `dist/Speechflow.app`. Raw `swift
 swift test
 ```
 
-The project includes 51 tests across 6 suites covering core logic (text chunking, transcript buffer, auto-commit scheduling, overlay rendering, translation output normalization) and integration (AppCoordinator state machine). All tests use the Swift Testing framework and run without external dependencies.
+The project currently includes 82 tests across 9 suites covering core logic (text chunking, transcript buffer, auto-commit scheduling, overlay rendering, translation output normalization, permission readiness, runtime descriptor mapping, settings migration) and integration (AppCoordinator state machine). All tests use the Swift Testing framework and run without external dependencies.
 
 To run a specific test suite:
 
@@ -171,12 +174,16 @@ Current repo script is for development packaging (with optional ad-hoc `codesign
 
 ### ASR
 
-- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH`
+- `SPEECHFLOW_ASR_PYTHON_PATH` (preferred)
+- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` (legacy alias)
 - `SPEECHFLOW_ASR_MODEL` / `SPEECHFLOW_FASTER_WHISPER_MODEL`
 - `SPEECHFLOW_ASR_MODEL_PATH`
-- `SPEECHFLOW_ASR_DOWNLOAD_ROOT`
+- `SPEECHFLOW_ASR_POLL_SECONDS`
+- `SPEECHFLOW_ASR_MIN_START_SECONDS`
+- `SPEECHFLOW_ASR_MIN_INCREMENT_SECONDS`
+- `SPEECHFLOW_ASR_MAX_WINDOW_SECONDS`
 
-Default ASR model: `Qwen/Qwen3-ASR-1.7B`
+Default ASR model: `mlx-community/Qwen3-ASR-1.7B-4bit`
 
 ### Local Translation (Ollama)
 

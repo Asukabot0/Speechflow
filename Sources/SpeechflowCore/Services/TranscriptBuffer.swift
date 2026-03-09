@@ -57,6 +57,7 @@ public final class TranscriptBuffer: TranscriptBuffering {
         let segment = TranscriptSegment(
             sourceText: trimmed,
             normalizedSourceText: normalized,
+            isProvisional: reason == .partialStabilized,
             status: .committed,
             createdAt: now,
             committedAt: now,
@@ -75,6 +76,34 @@ public final class TranscriptBuffer: TranscriptBuffering {
             committedSegment: segment,
             commitReason: reason
         )
+    }
+
+    public func confirmSegments(ids: [UUID]) -> TranscriptSnapshot {
+        guard !ids.isEmpty else {
+            return snapshot
+        }
+
+        let idSet = Set(ids)
+        for index in committedSegments.indices where idSet.contains(committedSegments[index].id) {
+            guard committedSegments[index].isProvisional else {
+                continue
+            }
+            committedSegments[index].isProvisional = false
+        }
+
+        return snapshot
+    }
+
+    public func removeSegments(ids: [UUID]) -> TranscriptSnapshot {
+        guard !ids.isEmpty else {
+            return snapshot
+        }
+
+        let idSet = Set(ids)
+        committedSegments.removeAll { segment in
+            idSet.contains(segment.id) && segment.isProvisional
+        }
+        return snapshot
     }
 
     public func markTranslationStarted(for segmentID: UUID) -> TranscriptSnapshot {

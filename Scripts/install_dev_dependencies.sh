@@ -138,13 +138,25 @@ if [[ "$INSTALL_PYTHON_DEPS" -eq 1 ]]; then
   # shellcheck disable=SC1091
   source "$VENV_DIR/bin/activate"
   python -m pip install --upgrade pip setuptools wheel
-  python -m pip install --upgrade qwen-asr faster-whisper
+  python -m pip install --upgrade "mlx-audio==0.3.1"
+  python - <<'PY'
+import mlx_audio
+import mlx.core as mx
+if mx.metal.is_available():
+    print(f"[ok] mlx-audio ok ({mlx_audio.__file__}), Metal available for MLX ASR.")
+else:
+    print("[warn] mlx-audio imported but Metal is unavailable. Speechflow will fall back to system speech recognition.")
+PY
   deactivate
 
   cat <<EOF
 [ok] Python dependencies installed.
 To force Speechflow to use this Python runtime:
+  export SPEECHFLOW_ASR_PYTHON_PATH="$VENV_DIR/bin/python"
+Legacy alias still supported:
   export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="$VENV_DIR/bin/python"
+Default MLX ASR model:
+  mlx-community/Qwen3-ASR-1.7B-4bit
 EOF
 fi
 
@@ -168,7 +180,8 @@ cat <<'EOF'
 
 ==> Done
 Recommended next steps:
-  1) export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="<repo>/.venv/bin/python"
+  1) export SPEECHFLOW_ASR_PYTHON_PATH="<repo>/.venv/bin/python"
   2) ./Scripts/build_dev_app_bundle.sh
   3) open dist/Speechflow.app
+Legacy alias still supported: SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH
 EOF

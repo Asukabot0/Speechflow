@@ -11,7 +11,7 @@ AI Agent 安装与部署手册：[中文](Docs/AI_AGENT_README.zh-CN.md) | [Engl
 - 菜单栏常驻：`Start / Pause / Resume / Stop` 控制翻译会话
 - 双输入源：麦克风输入、系统音频输入（二选一激活）
 - 本地 ASR 主备链路：
-  - 主链路：`WhisperTurboASRService`（Python runner + Qwen ASR）
+  - 主链路：`WhisperTurboASRService`（Python runner + `mlx-community/Qwen3-ASR-1.7B-4bit`，通过 MLX 运行在 Apple Silicon）
   - 备链路：`SpeechFrameworkASRService`
 - 增量提交策略：`partial` + `silence/stable/final` 三类提交触发，降低长句延迟
 - 翻译路由：
@@ -72,10 +72,11 @@ Speechflow/
 - macOS 15+
 - Swift 6.2（见 `Package.swift`）
 - Python 3（本地 ASR runner 依赖）
+- Apple Silicon（主链路依赖 MLX / Metal；不可用时会自动回退到系统语音识别）
 - Ollama（本地字幕翻译）
 - 可选：OpenRouter API Key（助手流）
 
-> 当前仓库未提供 Python lockfile；详见 `Docs/DEPENDENCIES.md`。
+> 当前仓库提供轻量 `requirements.txt`，但仍未提供 Python lockfile；详见 `Docs/DEPENDENCIES.md`。
 
 ## 使用方式
 
@@ -92,18 +93,18 @@ Speechflow/
 - 指定拉取多个模型：
   `SPEECHFLOW_BOOTSTRAP_OLLAMA_MODELS="qwen3.5:0.8b,qwen3.5:2b" ./Scripts/install_dev_dependencies.sh`
 
-### 0.1) 手动安装 qwen-ASR（不使用脚本）
+### 0.1) 手动安装 MLX ASR（不使用脚本）
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install --upgrade qwen-asr faster-whisper
-python -c "import qwen_asr, faster_whisper; print('qwen-asr ok')"
-export SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH="$(pwd)/.venv/bin/python"
+python -m pip install --upgrade "mlx-audio==0.3.1"
+python -c "import mlx_audio, mlx.core as mx; print('mlx-audio ok, metal=', mx.metal.is_available())"
+export SPEECHFLOW_ASR_PYTHON_PATH="$(pwd)/.venv/bin/python"
 ```
 
-如果你不用 `.venv`，也可以装到现有 Python 环境；但需要确保 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 指向安装了 `qwen-asr` 的 Python 可执行文件。
+如果你不用 `.venv`，也可以装到现有 Python 环境；但需要确保 `SPEECHFLOW_ASR_PYTHON_PATH` 指向安装了 `mlx-audio` 的 Python 可执行文件。旧别名 `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH` 仍然兼容。
 
 ### 1) 构建
 
@@ -120,6 +121,8 @@ open dist/Speechflow.app
 
 说明：首次权限授权建议从 `dist/Speechflow.app` 启动。直接 `swift run` 的裸可执行进程在 macOS TCC 场景下可能无法正常触发权限流程。
 
+ASR 说明：主识别链路会通过 `mlx-audio` 加载 `mlx-community/Qwen3-ASR-1.7B-4bit`。若机器没有可用的 MLX / Metal，或模型启动失败，Speechflow 会自动回退到 `SpeechFrameworkASRService`，不会静默改成低性能降级路径。
+
 ### 3) 菜单栏操作
 
 - `Translate Microphone`：启动麦克风输入
@@ -134,7 +137,7 @@ open dist/Speechflow.app
 swift test
 ```
 
-项目包含 6 个测试套件共 51 个测试用例，覆盖核心逻辑（文本切分、转录缓冲区、自动提交调度、浮窗渲染、翻译输出规范化）和集成（AppCoordinator 状态机）。所有测试基于 Swift Testing 框架，无需外部依赖即可运行。
+项目当前包含 9 个测试套件共 82 个测试用例，覆盖核心逻辑（文本切分、转录缓冲区、自动提交调度、浮窗渲染、翻译输出规范化、权限判定、runtime descriptor 映射、设置迁移）和集成（AppCoordinator 状态机）。所有测试基于 Swift Testing 框架，无需外部依赖即可运行。
 
 运行特定测试套件：
 
@@ -170,12 +173,16 @@ swift test --filter AppCoordinatorTests
 
 ### ASR
 
-- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH`
+- `SPEECHFLOW_ASR_PYTHON_PATH`（推荐）
+- `SPEECHFLOW_FASTER_WHISPER_PYTHON_PATH`（兼容旧别名）
 - `SPEECHFLOW_ASR_MODEL` / `SPEECHFLOW_FASTER_WHISPER_MODEL`
 - `SPEECHFLOW_ASR_MODEL_PATH`
-- `SPEECHFLOW_ASR_DOWNLOAD_ROOT`
+- `SPEECHFLOW_ASR_POLL_SECONDS`
+- `SPEECHFLOW_ASR_MIN_START_SECONDS`
+- `SPEECHFLOW_ASR_MIN_INCREMENT_SECONDS`
+- `SPEECHFLOW_ASR_MAX_WINDOW_SECONDS`
 
-默认 ASR 模型：`Qwen/Qwen3-ASR-1.7B`
+默认 ASR 模型：`mlx-community/Qwen3-ASR-1.7B-4bit`
 
 ### 本地翻译（Ollama）
 

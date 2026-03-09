@@ -65,13 +65,13 @@ internal final class FasterWhisperTurboRuntime: WhisperTurboRuntime, @unchecked 
         let processSession = try ensureSession()
         let response = try processSession.transcribe(
             audioPath: inputURL.path,
-            languageCode: descriptor.languageCode(for: localeIdentifier),
+            languageCode: descriptor.runnerLanguage(for: localeIdentifier),
             timeout: descriptor.requestTimeout
         )
 
         let normalizedText = Self.normalizeTranscript(response.text)
         guard !normalizedText.isEmpty else {
-            throw WhisperTurboASRError.transcriptionOutputMissing
+            return FasterWhisperTranscriptionResponse(text: "", segments: [])
         }
 
         let normalizedSegments = response.segments
